@@ -27,9 +27,9 @@ Two things differ from the vLLM setup:
 | `start_ollama_qwen3_coder.sh` | Server start wrapper: exports tuning env, runs `ollama serve`, pulls model         |
 | `source_local` / `.csh`     | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local |
 | `source_cloud` / `.csh`     | CLOUD mode: unset those env vars and `unalias claude`/`codex`                    |
-| `mcp_qwen.py`                 | MCP server exposing Qwen as `ask_qwen` / `ask_qwen_code` tools                   |
-| `usage_report.py`             | Aggregate local Qwen token usage from `usage.log`                                  |
-| `usage.log`                   | JSONL usage records written by `mcp_qwen.py` (gitignored)                          |
+| `mcp_localllm.py`             | MCP server exposing the active local model as `ask_local` / `ask_local_code` tools |
+| `usage_report.py`             | Aggregate local LLM token usage from `usage.log`                                  |
+| `usage.log`                   | JSONL usage records written by `mcp_localllm.py` (gitignored)                      |
 
 ---
 
@@ -213,35 +213,44 @@ independent — no env var is shared, so neither overrides the other.
 
 ## MCP Integration
 
-`mcp_qwen.py` exposes the local Qwen model as two stdio MCP tools. It talks to
-Ollama's OpenAI-compatible endpoint via the OpenAI SDK; `OLLAMA_BASE_URL`
-(default `http://localhost:11434/v1`) and `QWEN_MODEL_ID` (default
-`qwen3-coder`) can override the target.
+`mcp_localllm.py` exposes the **active local model** as two stdio MCP tools. It
+is model-agnostic: it auto-detects whichever model Ollama currently has loaded
+(`/api/ps`, falling back to the first installed model from `/api/tags`) and
+adapts to that model's capabilities (`/api/show`). For **thinking-capable**
+models (e.g. `gemma4`) it sets `think: false` on the native `/api/chat` call so
+the answer lands in `content` instead of being consumed by chain-of-thought
+under the output-token budget; non-thinking models (e.g. `qwen3-coder`) are
+called plainly. Only the Python standard library is used (no OpenAI SDK).
+
+Overrides: `OLLAMA_HOST` (default `http://localhost:11434`), `LOCALLLM_MODEL_ID`
+(pin a specific model instead of auto-detecting), `LOCALLLM_MAX_TOKENS`
+(default `2048`), `LOCALLLM_TEMPERATURE` (default `0.2`). Legacy `QWEN_MODEL_ID`
+/ `QWEN_USAGE_LOG` are still honored for backward compatibility.
 
 ### Register
 
 ```bash
 # Claude Code
-claude mcp add -s user qwen-local python3 $REP/ollama/mcp_qwen.py
+claude mcp add -s user localllm python3 $REP/ollama/mcp_localllm.py
 
 # Codex
-codex mcp add qwen-local -- python3 $REP/ollama/mcp_qwen.py
+codex mcp add localllm -- python3 $REP/ollama/mcp_localllm.py
 ```
 
-Verify in Claude Code with `/mcp` (expect `qwen-local` connected) and call
-`ask_qwen`.
+Verify in Claude Code with `/mcp` (expect `localllm` connected) and call
+`ask_local`.
 
 ### Available tools
 
-| Tool                                | Use for                                                                      |
-| ----------------------------------- | ---------------------------------------------------------------------------- |
-| `ask_qwen(prompt)`                | Prose: Q&A, explanations, summaries, translation, comment/docstring rewrites |
-| `ask_qwen_code(language, prompt)` | Code: generation, refactoring, unit-test skeletons, stubs, code translation  |
+| Tool                                 | Use for                                                                      |
+| ------------------------------------ | ---------------------------------------------------------------------------- |
+| `ask_local(prompt)`                | Prose: Q&A, explanations, summaries, translation, comment/docstring rewrites |
+| `ask_local_code(language, prompt)` | Code: generation, refactoring, unit-test skeletons, stubs, code translation  |
 
 ### Token usage logging
 
 Each call appends a JSONL record (timestamp, tool, model, token counts,
-latency) to `usage.log` (override with `QWEN_USAGE_LOG`). Summarize with:
+latency) to `usage.log` (override with `LOCALLLM_USAGE_LOG`). Summarize with:
 
 ```bash
 python3 ollama/usage_report.py            # daily / per-tool table
@@ -360,17 +369,17 @@ These apply identically to every client (Claude Code, Codex, future clients).
 
 **Tool selection**
 
-| Tool                                | Use for                                                                      |
-| ----------------------------------- | ---------------------------------------------------------------------------- |
-| `ask_qwen(prompt)`                | Prose: Q&A, explanations, summaries, translation, comment/docstring rewrites |
-| `ask_qwen_code(language, prompt)` | Code: generation, refactoring, unit-test skeletons, stubs, code translation  |
+| Tool                                 | Use for                                                                      |
+| ------------------------------------ | ---------------------------------------------------------------------------- |
+| `ask_local(prompt)`                | Prose: Q&A, explanations, summaries, translation, comment/docstring rewrites |
+| `ask_local_code(language, prompt)` | Code: generation, refactoring, unit-test skeletons, stubs, code translation  |
 
 **Routing rules**
 
 1. **Pure Q&A / explanation / summary / translation** (good candidate)
-   → call `ask_qwen(prompt=<full request>)`; return the response verbatim.
+   → call `ask_local(prompt=<full request>)`; return the response verbatim.
 2. **Code generation / refactoring / unit tests** (formulaic, self-contained)
-   → determine the language from context; call `ask_qwen_code(language=<lang>, prompt=<request + required context>)`; return verbatim.
+   → determine the language from context; call `ask_local_code(language=<lang>, prompt=<request + required context>)`; return verbatim.
 3. **Tasks requiring file I/O** → the client reads/searches files itself, passes
    the actual relevant content (never a path) to Qwen, then applies the result
    with its own editing tools and verifies.
@@ -398,8 +407,8 @@ exceeds the 2,048-token output limit (split the output across calls).
 ### Architecture
 
 ```
-User → Claude Code → MCP (stdio) → mcp_qwen.py → Ollama :11434 → qwen3-coder
-User → Codex       → MCP (stdio) → mcp_qwen.py → Ollama :11434 → qwen3-coder
+User → Claude Code → MCP (stdio) → mcp_localllm.py → Ollama :11434 → active model
+User → Codex       → MCP (stdio) → mcp_localllm.py → Ollama :11434 → active model
 ```
 
 The cloud model handles orchestration: reading files, running searches, applying
@@ -449,15 +458,15 @@ refresh overwrites the cache copy from the source copy:
 | `~/.claude/plugins/cache/openai-codex/codex/<ver>/prompts/stop-review-gate.md`          | Runtime prompt used for the stop-gate Codex task                                |
 | `~/.claude/plugins/marketplaces/openai-codex/plugins/codex/prompts/stop-review-gate.md` | Source prompt to keep in sync so reinstall/cache refresh does not lose the rule |
 
-The prompt-level rule is inert unless the `qwen-local` MCP server is also exposed to the
-Codex session via `~/.codex/config.toml` (`[mcp_servers.qwen-local]`, pointing at
-`$REP/ollama/mcp_qwen.py`). Verify both the block and the MCP wiring with:
+The prompt-level rule is inert unless the `localllm` MCP server is also exposed to the
+Codex session via `~/.codex/config.toml` (`[mcp_servers.localllm]`, pointing at
+`$REP/ollama/mcp_localllm.py`). Verify both the block and the MCP wiring with:
 
 ```sh
 grep -c delegate \
   ~/.claude/plugins/cache/openai-codex/codex/*/prompts/stop-review-gate.md \
   ~/.claude/plugins/marketplaces/openai-codex/plugins/codex/prompts/stop-review-gate.md
-grep -n qwen ~/.codex/config.toml
+grep -n localllm ~/.codex/config.toml
 ```
 
 After any Codex plugin reinstall, re-confirm the cache copy still carries the block.
@@ -466,8 +475,8 @@ After any Codex plugin reinstall, re-confirm the cache copy still carries the bl
 
 | Limit                    | Value                                         | Source                              |
 | ------------------------ | --------------------------------------------- | ----------------------------------- |
-| Output per call (client) | **≤ 2,048 tokens**                     | `mcp_qwen.py` `max_tokens=2048` |
-| Sampling temperature     | `0.2`                                       | `mcp_qwen.py` request param       |
+| Output per call (client) | **≤ 2,048 tokens**                     | `mcp_localllm.py` `num_predict` (`LOCALLLM_MAX_TOKENS`) |
+| Sampling temperature     | `0.2`                                       | `mcp_localllm.py` (`LOCALLLM_TEMPERATURE`) |
 | Context window           | `OLLAMA_CONTEXT_LENGTH` (64000 via wrapper) | server-side (per loaded model)      |
 
 `OLLAMA_CONTEXT_LENGTH` is the **combined** input+output budget per loaded

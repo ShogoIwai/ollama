@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Aggregate Qwen-local token usage.
+"""Aggregate local LLM token usage.
 
-Reads the JSONL written by mcp_qwen.py (default: ./usage.log) and prints a
+Reads the JSONL written by mcp_localllm.py (default: ./usage.log) and prints a
 daily / per-tool summary of call counts and token consumption.
 
 Usage:
