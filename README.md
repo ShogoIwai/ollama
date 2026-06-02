@@ -29,16 +29,16 @@ Two things differ from the vLLM setup:
 
 ## Directory Contents
 
-| File                            | Role                                                                                 |
-| ------------------------------- | ------------------------------------------------------------------------------------ |
-| `start_ollama_qwen3_coder.sh` | Thin launcher for `qwen3-coder`: sets `MODEL` and sources the shared core         |
-| `start_ollama_gemma4.sh`      | Thin launcher for `gemma4:26b` (override `MODEL=` for another size/quant)         |
-| `_ollama_serve_common.sh`     | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull)     |
-| `source_local` / `.csh`     | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local |
-| `source_cloud` / `.csh`     | CLOUD mode: unset those env vars and `unalias claude`/`codex`                    |
+| File                            | Role                                                                                   |
+| ------------------------------- | -------------------------------------------------------------------------------------- |
+| `start_ollama_qwen3_coder.sh` | Thin launcher for `qwen3-coder`: sets `MODEL` and sources the shared core          |
+| `start_ollama_gemma4.sh`      | Thin launcher for `gemma4:26b` (override `MODEL=` for another size/quant)          |
+| `_ollama_serve_common.sh`     | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull)         |
+| `source_local` / `.csh`     | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local   |
+| `source_cloud` / `.csh`     | CLOUD mode: unset those env vars and `unalias claude`/`codex`                      |
 | `mcp_localllm.py`             | MCP server exposing the active local model as `ask_local` / `ask_local_code` tools |
-| `usage_report.py`             | Aggregate local LLM token usage from `usage.log`                                  |
-| `usage.log`                   | JSONL usage records written by `mcp_localllm.py` (gitignored)                      |
+| `usage_report.py`             | Aggregate local LLM token usage from `usage.log`                                     |
+| `usage.log`                   | JSONL usage records written by `mcp_localllm.py` (gitignored)                        |
 
 ---
 
@@ -147,9 +147,9 @@ each alias selects is **no longer hard-coded** — it comes from two env vars yo
 may override **before** sourcing (both default if unset, so the no-arg case is
 unchanged):
 
-| Env var (override before sourcing) | Default        | Controls                                       |
-| ---------------------------------- | -------------- | ---------------------------------------------- |
-| `LOCALLLM_MODEL`                 | `qwen3-coder`  | the model tag pinned by the `claude` alias   |
+| Env var (override before sourcing) | Default          | Controls                                          |
+| ---------------------------------- | ---------------- | ------------------------------------------------- |
+| `LOCALLLM_MODEL`                 | `gemma4:26b`   | the model tag pinned by the `claude` alias      |
 | `LOCALLLM_CODEX_PROFILE`         | `ollama-local` | the Codex profile selected by the `codex` alias |
 
 ```bash
@@ -163,9 +163,9 @@ source ollama/source_local                 # claude alias → claude --model gem
 
 The two env files resolve the aliases at source time:
 
-| Alias                                                | Why                                                                           |
-| ---------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `claude` → `claude --model $LOCALLLM_MODEL`     | env already targets Ollama; the alias just pins the model name                |
+| Alias                                                    | Why                                                                           |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `claude` → `claude --model $LOCALLLM_MODEL`         | env already targets Ollama; the alias just pins the model name                |
 | `codex` → `codex --profile $LOCALLLM_CODEX_PROFILE` | Codex shares no env (OPENAI_* stays unset), so the profile flag selects local |
 
 `source_local` also exports `LOCALLLM_MODEL` / `LOCALLLM_CODEX_PROFILE` so the
@@ -537,11 +537,11 @@ After any Codex plugin reinstall, re-confirm the cache copy still carries the bl
 
 ### Token Limits
 
-| Limit                    | Value                                         | Source                              |
-| ------------------------ | --------------------------------------------- | ----------------------------------- |
+| Limit                    | Value                                         | Source                                                        |
+| ------------------------ | --------------------------------------------- | ------------------------------------------------------------- |
 | Output per call (client) | **≤ 2,048 tokens**                     | `mcp_localllm.py` `num_predict` (`LOCALLLM_MAX_TOKENS`) |
-| Sampling temperature     | `0.2`                                       | `mcp_localllm.py` (`LOCALLLM_TEMPERATURE`) |
-| Context window           | `OLLAMA_CONTEXT_LENGTH` (64000 via wrapper) | server-side (per loaded model)      |
+| Sampling temperature     | `0.2`                                       | `mcp_localllm.py` (`LOCALLLM_TEMPERATURE`)                |
+| Context window           | `OLLAMA_CONTEXT_LENGTH` (64000 via wrapper) | server-side (per loaded model)                                |
 
 `OLLAMA_CONTEXT_LENGTH` is the **combined** input+output budget per loaded
 model. The `2,048` figure is the per-call **output** limit set by the MCP server.

@@ -17,12 +17,13 @@ setenv ANTHROPIC_API_KEY ""
 
 # --- Model / profile selection (override before sourcing to switch model) ---
 # LOCALLLM_MODEL         picks the Ollama tag the `claude` alias pins (e.g.
-#                        qwen3-coder, gemma4:26b). Default: qwen3-coder.
+#                        qwen3-coder, gemma4:26b).
 # LOCALLLM_CODEX_PROFILE picks the Codex profile the `codex` alias selects
 #                        (overlay file ~/.codex/<profile>.config.toml that sets
 #                        the model). Default: ollama-local.
 # Example:  setenv LOCALLLM_MODEL gemma4:26b  before  source ollama/source_local.csh
-if (! $?LOCALLLM_MODEL) setenv LOCALLLM_MODEL "qwen3-coder"
+# if (! $?LOCALLLM_MODEL) setenv LOCALLLM_MODEL "qwen3-coder"
+if (! $?LOCALLLM_MODEL) setenv LOCALLLM_MODEL "gemma4:26b"
 if (! $?LOCALLLM_CODEX_PROFILE) setenv LOCALLLM_CODEX_PROFILE "ollama-local"
 
 # --- Local-mode aliases (cleared by source_cloud.csh) ---
