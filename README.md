@@ -1,7 +1,14 @@
 # Local LLM Workflow — Ollama + Claude Code + Codex
 
 `ollama/` provides a local LLM environment for Claude Code, Codex, and Goose,
-built on **Ollama + qwen3-coder**. It replaces the former `vllm/` (vLLM +
+built on **Ollama**. Two local models are supported interchangeably —
+**`qwen3-coder`** (default, non-thinking) and **`gemma4:26b`** (thinking-capable
+MoE) — each with its own thin launcher (`start_ollama_qwen3_coder.sh` /
+`start_ollama_gemma4.sh`) sharing one core (`_ollama_serve_common.sh`). The MCP
+server auto-detects whichever is loaded; the harness direct-connect picks the
+model by the `LOCALLLM_MODEL` env var (see
+[cloud / local static switching](#cloud--local-static-switching)). It replaces
+the former `vllm/` (vLLM +
 Qwen3-Coder-30B-A3B-AWQ) setup: only the inference backend changes; the clients
 still talk to the same OpenAI-compatible (`/v1`) and Anthropic-compatible
 (`/v1/messages`) endpoints, now served on a single port `11434`.
@@ -24,7 +31,9 @@ Two things differ from the vLLM setup:
 
 | File                            | Role                                                                                 |
 | ------------------------------- | ------------------------------------------------------------------------------------ |
-| `start_ollama_qwen3_coder.sh` | Server start wrapper: exports tuning env, runs `ollama serve`, pulls model         |
+| `start_ollama_qwen3_coder.sh` | Thin launcher for `qwen3-coder`: sets `MODEL` and sources the shared core         |
+| `start_ollama_gemma4.sh`      | Thin launcher for `gemma4:26b` (override `MODEL=` for another size/quant)         |
+| `_ollama_serve_common.sh`     | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull)     |
 | `source_local` / `.csh`     | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local |
 | `source_cloud` / `.csh`     | CLOUD mode: unset those env vars and `unalias claude`/`codex`                    |
 | `mcp_localllm.py`             | MCP server exposing the active local model as `ask_local` / `ask_local_code` tools |
@@ -63,16 +72,26 @@ ollama run qwen3-coder     # optional REPL smoke test
 ### 2. Start the server
 
 ```bash
-./start_ollama_qwen3_coder.sh
+./start_ollama_qwen3_coder.sh        # qwen3-coder (default)
+./start_ollama_gemma4.sh             # gemma4:26b  (override MODEL= for another size)
+#   MODEL=gemma4:31b ./start_ollama_gemma4.sh
 ```
 
-The wrapper:
+Each launcher is a thin wrapper: it sets the `MODEL` tag and sources the shared
+core `_ollama_serve_common.sh`. Adding a new model is one more 2-line launcher —
+everything else (daemon start, readiness wait, lazy pull, foreground lifecycle)
+lives once in the common file. The wrapper:
 
 - exports `OLLAMA_HOST` (default `http://localhost:11434`) and
   `OLLAMA_CONTEXT_LENGTH` (default `64000`);
 - if a daemon is already reachable, reports and exits 0 (does nothing);
 - otherwise starts `ollama serve` in the background, waits for the API, pulls
-  `qwen3-coder` if missing, then keeps the daemon in the foreground.
+  the selected `MODEL` if missing, then keeps the daemon in the foreground.
+
+> Only one daemon binds `:11434`. To switch which model serves, stop the running
+> launcher and start the other; the MCP server then auto-detects the newly
+> loaded model. Run both side by side only if you give each its own
+> `OLLAMA_HOST` port.
 
 > **Context length:** Ollama auto-limits context to 4K when VRAM < 24GB (e.g.
 > RTX 3090 24GB defaults to 32768). Agent use needs more, so the wrapper sets
@@ -123,23 +142,49 @@ these files, and never conflicts with Codex. See the [Goose](#goose) section.
 ### Aliases set by `source_local`
 
 `source_local` defines two shell aliases so plain `claude` / `codex` run in
-local mode without typing flags; `source_cloud` removes them again:
+local mode without typing flags; `source_cloud` removes them again. The model
+each alias selects is **no longer hard-coded** — it comes from two env vars you
+may override **before** sourcing (both default if unset, so the no-arg case is
+unchanged):
 
-| Alias                                         | Why                                                                           |
-| --------------------------------------------- | ----------------------------------------------------------------------------- |
-| `claude` → `claude --model qwen3-coder`  | env already targets Ollama; the alias just pins the model name                |
-| `codex` → `codex --profile ollama-local` | Codex shares no env (OPENAI_* stays unset), so the profile flag selects local |
+| Env var (override before sourcing) | Default        | Controls                                       |
+| ---------------------------------- | -------------- | ---------------------------------------------- |
+| `LOCALLLM_MODEL`                 | `qwen3-coder`  | the model tag pinned by the `claude` alias   |
+| `LOCALLLM_CODEX_PROFILE`         | `ollama-local` | the Codex profile selected by the `codex` alias |
 
-After `source_cloud` the aliases are dropped and `claude` / `codex` revert to
-their cloud defaults. (Alias self-reference is safe — bash/csh do not re-expand
-the leading word recursively.)
+```bash
+# default (qwen3-coder)
+source ollama/source_local                 # tcsh: source ollama/source_local.csh
+
+# switch the harness direct-connect to gemma4
+export LOCALLLM_MODEL=gemma4:26b           # tcsh: setenv LOCALLLM_MODEL gemma4:26b
+source ollama/source_local                 # claude alias → claude --model gemma4:26b
+```
+
+The two env files resolve the aliases at source time:
+
+| Alias                                                | Why                                                                           |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `claude` → `claude --model $LOCALLLM_MODEL`     | env already targets Ollama; the alias just pins the model name                |
+| `codex` → `codex --profile $LOCALLLM_CODEX_PROFILE` | Codex shares no env (OPENAI_* stays unset), so the profile flag selects local |
+
+`source_local` also exports `LOCALLLM_MODEL` / `LOCALLLM_CODEX_PROFILE` so the
+choice is visible to subprocesses; `source_cloud` unsets both along with the
+aliases, so `claude` / `codex` revert to their cloud defaults. (Alias
+self-reference is safe — bash/csh do not re-expand the leading word
+recursively.)
+
+> **Note:** `LOCALLLM_MODEL` selects the model for the **harness direct-connect**
+> (the `claude` alias). It is independent of the MCP server, which always
+> auto-detects the loaded model on its own. Make sure the model you point the
+> alias at is actually the one the running launcher serves.
 
 ### Claude Code
 
 ```bash
 # local
 source ollama/source_local         # tcsh: source ollama/source_local.csh
-claude                             # alias → claude --model qwen3-coder
+claude                             # alias → claude --model $LOCALLLM_MODEL (default qwen3-coder)
 # (optional) alias to bypass model-name validation:
 #   ollama cp qwen3-coder claude-3-5-sonnet
 
@@ -150,9 +195,14 @@ claude                             # alias cleared → cloud default
 
 ### Codex
 
-`source_local` aliases `codex` → `codex --profile ollama-local`; `source_cloud`
-clears it so `codex` is cloud again. You can still invoke either explicitly
-(`codex --profile ollama-local` / `codex`) regardless of which file is sourced.
+`source_local` aliases `codex` → `codex --profile $LOCALLLM_CODEX_PROFILE`
+(default `ollama-local`); `source_cloud` clears it so `codex` is cloud again. You
+can still invoke either explicitly (`codex --profile ollama-local` / `codex`)
+regardless of which file is sourced. To make the `codex` alias select a
+different local model, point `LOCALLLM_CODEX_PROFILE` at another overlay file
+(e.g. `ollama-gemma` ⇒ `~/.codex/ollama-gemma.config.toml` with
+`model = "gemma4:26b"`) before sourcing — Codex picks the model per profile,
+not per env var.
 
 The profile mechanism is independent of the env files. Since Codex
 v0.136 the profile **must not** live in `config.toml` as a `[profiles.<name>]`
@@ -175,8 +225,18 @@ model = "qwen3-coder"
 model_provider = "ollama-local"
 ```
 
+Add one overlay file per local model you want a `codex --profile` for; they all
+reuse the single shared `ollama-local` provider:
+
+```toml
+# ~/.codex/ollama-gemma.config.toml
+model = "gemma4:26b"
+model_provider = "ollama-local"
+```
+
 ```bash
-codex --profile ollama-local       # local (loads ollama-local.config.toml)
+codex --profile ollama-local       # local qwen3-coder (loads ollama-local.config.toml)
+codex --profile ollama-gemma       # local gemma4:26b  (loads ollama-gemma.config.toml)
 codex                              # cloud (default profile)
 ```
 
@@ -199,6 +259,10 @@ providers:
     model: qwen3-coder
     configured: true
 ```
+
+To switch Goose's model, edit the single `model:` line in `config.yaml`
+(e.g. `model: gemma4:26b`) — Goose has no env-var override here, the value is
+read straight from the file.
 
 Goose reads config-file keys the same way it reads env vars, so keeping
 `OPENAI_BASE_URL` (and the two `GOOSE_*` settings) in `config.yaml` means Goose

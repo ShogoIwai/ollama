@@ -15,11 +15,21 @@ setenv ANTHROPIC_BASE_URL "http://localhost:11434"
 setenv ANTHROPIC_AUTH_TOKEN "ollama"
 setenv ANTHROPIC_API_KEY ""
 
+# --- Model / profile selection (override before sourcing to switch model) ---
+# LOCALLLM_MODEL         picks the Ollama tag the `claude` alias pins (e.g.
+#                        qwen3-coder, gemma4:26b). Default: qwen3-coder.
+# LOCALLLM_CODEX_PROFILE picks the Codex profile the `codex` alias selects
+#                        (overlay file ~/.codex/<profile>.config.toml that sets
+#                        the model). Default: ollama-local.
+# Example:  setenv LOCALLLM_MODEL gemma4:26b  before  source ollama/source_local.csh
+if (! $?LOCALLLM_MODEL) setenv LOCALLLM_MODEL "qwen3-coder"
+if (! $?LOCALLLM_CODEX_PROFILE) setenv LOCALLLM_CODEX_PROFILE "ollama-local"
+
 # --- Local-mode aliases (cleared by source_cloud.csh) ---
 # claude: env already points at Ollama; alias just pins the model name.
 # codex : no shared env (OPENAI_* intentionally unset), so the profile flag is
 #         what actually selects local. Plain `codex` (no alias) stays cloud.
-alias claude 'claude --model qwen3-coder'
-alias codex 'codex --profile ollama-local'
+alias claude "claude --model $LOCALLLM_MODEL"
+alias codex "codex --profile $LOCALLLM_CODEX_PROFILE"
 
-echo "[ollama] LOCAL mode: claude/codex aliased to local (model: qwen3-coder)"
+echo "[ollama] LOCAL mode: claude/codex aliased to local (model: $LOCALLLM_MODEL, codex profile: $LOCALLLM_CODEX_PROFILE)"

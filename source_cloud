@@ -6,6 +6,7 @@
 # Only ANTHROPIC_* / OLLAMA_HOST are touched here; source_local never set any
 # OPENAI_* var, so there is nothing OpenAI-side to unset (Codex stays clean).
 unset ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN ANTHROPIC_API_KEY OLLAMA_HOST
+unset LOCALLLM_MODEL LOCALLLM_CODEX_PROFILE
 
 # Drop the local-mode aliases so `claude` / `codex` revert to their cloud defaults.
 unalias claude 2>/dev/null
