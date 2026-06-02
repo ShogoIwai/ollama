@@ -22,14 +22,14 @@ Two things differ from the vLLM setup:
 
 ## Directory Contents
 
-| File                            | Role                                                                         |
-| ------------------------------- | ---------------------------------------------------------------------------- |
-| `start_ollama_qwen3_coder.sh` | Server start wrapper: exports tuning env, runs `ollama serve`, pulls model |
+| File                            | Role                                                                                 |
+| ------------------------------- | ------------------------------------------------------------------------------------ |
+| `start_ollama_qwen3_coder.sh` | Server start wrapper: exports tuning env, runs `ollama serve`, pulls model         |
 | `source_local` / `.csh`     | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local |
-| `source_cloud` / `.csh`     | CLOUD mode: unset those env vars and `unalias claude`/`codex`                |
-| `mcp_qwen.py`                 | MCP server exposing Qwen as `ask_qwen` / `ask_qwen_code` tools           |
-| `usage_report.py`             | Aggregate local Qwen token usage from `usage.log`                          |
-| `usage.log`                   | JSONL usage records written by `mcp_qwen.py` (gitignored)                  |
+| `source_cloud` / `.csh`     | CLOUD mode: unset those env vars and `unalias claude`/`codex`                    |
+| `mcp_qwen.py`                 | MCP server exposing Qwen as `ask_qwen` / `ask_qwen_code` tools                   |
+| `usage_report.py`             | Aggregate local Qwen token usage from `usage.log`                                  |
+| `usage.log`                   | JSONL usage records written by `mcp_qwen.py` (gitignored)                          |
 
 ---
 
@@ -115,19 +115,19 @@ those too, so exporting them would silently redirect Codex to the local server.
 `~/.config/goose/config.yaml`, so Goose needs no shell env, is unaffected by
 these files, and never conflicts with Codex. See the [Goose](#goose) section.
 
-| File                        | Mode          | Effect                                                                                                  |
-| --------------------------- | ------------- | ------------------------------------------------------------------------------------------------------- |
+| File                        | Mode          | Effect                                                                                                                                                                                           |
+| --------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `source_local` / `.csh` | LOCAL(Ollama) | export `ANTHROPIC_BASE_URL=:11434`, `ANTHROPIC_AUTH_TOKEN=ollama`, `ANTHROPIC_API_KEY=""`, `OLLAMA_HOST`; alias `claude`/`codex` to local (see [Aliases](#aliases-set-by-source_local)) |
-| `source_cloud` / `.csh` | CLOUD         | unset the above (tcsh `unsetenv`) and `unalias claude` / `codex`; re-set `ANTHROPIC_API_KEY` if you authenticate by key |
+| `source_cloud` / `.csh` | CLOUD         | unset the above (tcsh `unsetenv`) and `unalias claude` / `codex`; re-set `ANTHROPIC_API_KEY` if you authenticate by key                                                                  |
 
 ### Aliases set by `source_local`
 
 `source_local` defines two shell aliases so plain `claude` / `codex` run in
 local mode without typing flags; `source_cloud` removes them again:
 
-| Alias                                | Why                                                                        |
-| ------------------------------------ | -------------------------------------------------------------------------- |
-| `claude` → `claude --model qwen3-coder` | env already targets Ollama; the alias just pins the model name             |
+| Alias                                         | Why                                                                           |
+| --------------------------------------------- | ----------------------------------------------------------------------------- |
+| `claude` → `claude --model qwen3-coder`  | env already targets Ollama; the alias just pins the model name                |
 | `codex` → `codex --profile ollama-local` | Codex shares no env (OPENAI_* stays unset), so the profile flag selects local |
 
 After `source_cloud` the aliases are dropped and `claude` / `codex` revert to
@@ -417,6 +417,50 @@ client-specific note (tool names, who owns file I/O):
 | ----------- | ----------------------- |
 | Claude Code | `~/.claude/CLAUDE.md` |
 | Codex       | `~/.codex/AGENTS.md`  |
+
+### Codex stop-review-gate delegation
+
+The Codex stop-time review gate (see
+[Tips: rg Process Lingering](#tips-codex-stop-review-gate-rg-process-lingering-issue))
+is one concrete place where delegation is wired in. The gate runs from a **fixed
+prompt template** — not text Claude generates per turn. Only the
+`{{CLAUDE_RESPONSE_BLOCK}}` placeholder is substituted at runtime with the previous
+Claude turn's output; the ALLOW/BLOCK contract and fast-path rules are hard-coded in
+the template, which `stop-review-gate-hook.mjs` / `codex-companion.mjs` read and run.
+
+To make the gate offload its review reasoning to Qwen (token savings) while Codex keeps
+file I/O and the final ALLOW/BLOCK decision, add this **Qwen delegation block** to the
+prompt template:
+
+```text
+When reviewing actual code changes and local Qwen MCP tools are available, delegate
+the review reasoning to Qwen after gathering the relevant repository context locally.
+Pass Qwen the concrete diff and relevant file snippets; do not ask Qwen to read paths
+or use tools. Keep all file I/O, command execution, and final ALLOW/BLOCK decision in
+Codex. If the previous turn did not make direct edits, return ALLOW immediately without
+calling Qwen.
+```
+
+The block must be present in **both** prompt copies, because a plugin reinstall / cache
+refresh overwrites the cache copy from the source copy:
+
+| File                                                                                      | Purpose                                                                         |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `~/.claude/plugins/cache/openai-codex/codex/<ver>/prompts/stop-review-gate.md`          | Runtime prompt used for the stop-gate Codex task                                |
+| `~/.claude/plugins/marketplaces/openai-codex/plugins/codex/prompts/stop-review-gate.md` | Source prompt to keep in sync so reinstall/cache refresh does not lose the rule |
+
+The prompt-level rule is inert unless the `qwen-local` MCP server is also exposed to the
+Codex session via `~/.codex/config.toml` (`[mcp_servers.qwen-local]`, pointing at
+`$REP/ollama/mcp_qwen.py`). Verify both the block and the MCP wiring with:
+
+```sh
+grep -c delegate \
+  ~/.claude/plugins/cache/openai-codex/codex/*/prompts/stop-review-gate.md \
+  ~/.claude/plugins/marketplaces/openai-codex/plugins/codex/prompts/stop-review-gate.md
+grep -n qwen ~/.codex/config.toml
+```
+
+After any Codex plugin reinstall, re-confirm the cache copy still carries the block.
 
 ### Token Limits
 
