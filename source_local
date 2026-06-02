@@ -1,0 +1,18 @@
+# Switch the current shell to LOCAL (Ollama) mode.  bash/sh:  source ollama/source_local
+#
+# Points the Anthropic-compatible clients (Claude Code) and the OpenAI-compatible
+# clients (Goose) at the local Ollama endpoint on :11434. Return to cloud with
+# `source ollama/source_cloud`.
+export OLLAMA_HOST="http://localhost:11434"
+
+# --- Claude Code (Anthropic-compatible /v1/messages, Ollama v0.14.0+) ---
+export ANTHROPIC_BASE_URL="http://localhost:11434"
+export ANTHROPIC_AUTH_TOKEN="ollama"
+export ANTHROPIC_API_KEY=""
+
+# --- Goose (OpenAI-compatible /v1) ---
+export OPENAI_BASE_URL="http://localhost:11434/v1"
+export GOOSE_DISABLE_KEYRING=1
+export GOOSE_TOOLSHIM=1
+
+echo "[ollama] LOCAL mode: Anthropic/OpenAI clients -> http://localhost:11434 (model: qwen3-coder)"
