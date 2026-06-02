@@ -11,6 +11,12 @@ set -eu
 
 : "${MODEL:?MODEL must be set before sourcing _ollama_serve_common.sh}"
 
+# Record the launched model so client shells (source_local.csh) can auto-select
+# the matching client model/profile without manual edits. Written as soon as
+# MODEL is known, so it applies on every path (including the already-running
+# early-exit below).
+printf '%s\n' "${MODEL}" > "${HOME}/.ollama_active_model" 2>/dev/null || true
+
 # OpenAI-compatible (/v1) and Anthropic-compatible (/v1/messages, v0.14.0+)
 # endpoints are both served on this single host:port.
 export OLLAMA_HOST="${OLLAMA_HOST:-http://localhost:11434}"

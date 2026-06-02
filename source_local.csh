@@ -22,9 +22,31 @@ setenv ANTHROPIC_API_KEY ""
 #                        (overlay file ~/.codex/<profile>.config.toml that sets
 #                        the model). Default: ollama-local.
 # Example:  setenv LOCALLLM_MODEL gemma4:26b  before  source ollama/source_local.csh
-# if (! $?LOCALLLM_MODEL) setenv LOCALLLM_MODEL "qwen3-coder"
-if (! $?LOCALLLM_MODEL) setenv LOCALLLM_MODEL "gemma4:26b"
-if (! $?LOCALLLM_CODEX_PROFILE) setenv LOCALLLM_CODEX_PROFILE "ollama-local"
+#
+# Auto-detection: the start scripts (_ollama_serve_common.sh) record the launched
+# model tag in ~/.ollama_active_model. If LOCALLLM_MODEL is not already set, we
+# read that marker so sourcing this file tracks whichever model you started. An
+# explicit `setenv LOCALLLM_MODEL ...` before sourcing always wins.
+if (! $?LOCALLLM_MODEL) then
+    if (-r "$HOME/.ollama_active_model") then
+        setenv LOCALLLM_MODEL "`cat $HOME/.ollama_active_model`"
+    else
+        setenv LOCALLLM_MODEL "qwen3-coder"
+    endif
+endif
+
+# Derive the Codex profile (overlay file ~/.codex/<profile>.config.toml) from the
+# model unless explicitly set. Add a case + overlay file per new local model.
+if (! $?LOCALLLM_CODEX_PROFILE) then
+    switch ("$LOCALLLM_MODEL")
+        case gemma4*:
+            setenv LOCALLLM_CODEX_PROFILE "ollama-gemma"
+            breaksw
+        default:
+            setenv LOCALLLM_CODEX_PROFILE "ollama-local"
+            breaksw
+    endsw
+endif
 
 # --- Local-mode aliases (cleared by source_cloud.csh) ---
 # claude: env already points at Ollama; alias just pins the model name.
