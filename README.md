@@ -22,10 +22,10 @@ Two things differ from the vLLM setup:
 
 | File                            | Role                                                                         |
 | ------------------------------- | ---------------------------------------------------------------------------- |
-| `mcp_qwen.py`                 | MCP server exposing Qwen as `ask_qwen` / `ask_qwen_code` tools           |
 | `start_ollama_qwen3_coder.sh` | Server start wrapper: exports tuning env, runs `ollama serve`, pulls model |
 | `source_local` / `.csh`     | Switch the shell to LOCAL (Ollama) mode — bash/sh and tcsh/csh              |
 | `source_cloud` / `.csh`     | Switch the shell back to CLOUD mode (unset overrides)                        |
+| `mcp_qwen.py`                 | MCP server exposing Qwen as `ask_qwen` / `ask_qwen_code` tools           |
 | `usage_report.py`             | Aggregate local Qwen token usage from `usage.log`                          |
 | `usage.log`                   | JSONL usage records written by `mcp_qwen.py` (gitignored)                  |
 
@@ -80,6 +80,25 @@ The wrapper:
 
 ---
 
+## Models and memory requirements
+
+`qwen3-coder` (MoE, ~3B active, large native context, non-thinking mode by
+default) is the primary candidate. Pick a GGUF quantization to fit your memory:
+
+| Quant      | Memory      | Target environment    | tok/s  |
+| ---------- | ----------- | --------------------- | ------ |
+| UD-Q2_K    | ~26–30 GB  | 32 GB unified memory  | 15–25 |
+| UD-Q4_K_XL | ~35–40 GB  | 64 GB Mac / RTX 5090  | 20–30 |
+| Q6_K       | ~50–55 GB  | 96 GB workstation     | 25–40 |
+| Q8_0       | ~65–70 GB  | 128 GB WS / multi-GPU | 30–45 |
+| FP8        | ~90–110 GB | H100 / A100           | 40–60 |
+
+> On a 24 GB GPU, a strongly quantized GGUF runs with partial CPU offload
+> (`ollama ps` shows the split). Final selection should be confirmed against
+> measured VRAM and speed requirements.
+
+---
+
 ## cloud / local static switching
 
 Switching is done by sourcing one of two env files. There is no dynamic
@@ -108,21 +127,29 @@ claude
 
 ### Codex
 
-Codex switches via `~/.codex/config.toml` `--profile`, independent of the env
-files:
+Codex switches via `--profile`, independent of the env files. Since Codex
+v0.136 the profile **must not** live in `config.toml` as a `[profiles.<name>]`
+table (or a `profile = "..."` selector) — Codex rejects it with a "legacy
+profile" error. Keep only the shared provider definition in `config.toml`:
 
 ```toml
+# ~/.codex/config.toml
 [model_providers.ollama-local]
 name = "Ollama"
 base_url = "http://localhost:11434/v1"
+```
 
-[profiles.ollama-local]
+and put the profile-specific settings in their own overlay file named
+`~/.codex/<profile>.config.toml`:
+
+```toml
+# ~/.codex/ollama-local.config.toml
 model = "qwen3-coder"
 model_provider = "ollama-local"
 ```
 
 ```bash
-codex --profile ollama-local       # local
+codex --profile ollama-local       # local (loads ollama-local.config.toml)
 codex                              # cloud (default profile)
 ```
 
@@ -350,25 +377,6 @@ client-specific note (tool names, who owns file I/O):
 
 `OLLAMA_CONTEXT_LENGTH` is the **combined** input+output budget per loaded
 model. The `2,048` figure is the per-call **output** limit set by the MCP server.
-
----
-
-## Models and memory requirements
-
-`qwen3-coder` (MoE, ~3B active, large native context, non-thinking mode by
-default) is the primary candidate. Pick a GGUF quantization to fit your memory:
-
-| Quant      | Memory      | Target environment    | tok/s  |
-| ---------- | ----------- | --------------------- | ------ |
-| UD-Q2_K    | ~26–30 GB  | 32 GB unified memory  | 15–25 |
-| UD-Q4_K_XL | ~35–40 GB  | 64 GB Mac / RTX 5090  | 20–30 |
-| Q6_K       | ~50–55 GB  | 96 GB workstation     | 25–40 |
-| Q8_0       | ~65–70 GB  | 128 GB WS / multi-GPU | 30–45 |
-| FP8        | ~90–110 GB | H100 / A100           | 40–60 |
-
-> On a 24 GB GPU, a strongly quantized GGUF runs with partial CPU offload
-> (`ollama ps` shows the split). Final selection should be confirmed against
-> measured VRAM and speed requirements.
 
 ---
 
