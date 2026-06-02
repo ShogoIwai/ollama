@@ -11,9 +11,11 @@ Two things differ from the vLLM setup:
 1. **Independent repository.** Ollama assets live here in `ollama/`, separate
    from `vllm/`. The two are independent; you can keep `vllm/` around for
    rollback and switch clients by env/profile only.
-2. **No quota monitoring.** cloud / local switching is **static, per client**
-   (env file or profile). The 5h-quota dynamic routing from `vllm/`
-   (`proxy.py` / `quota_route.py` / `usage_route_hook.py` /
+2. **No quota monitoring.** cloud / local switching is **static, per client**:
+   Claude Code by env + alias, Codex by profile/alias, and Goose is local-only
+   via its own `config.yaml` (no env, never cloud). No client shares an
+   `OPENAI_*` env var, so none can override another. The 5h-quota dynamic routing
+   from `vllm/` (`proxy.py` / `quota_route.py` / `usage_route_hook.py` /
    `codex_quota_context.py`) is **not** ported here.
 
 ---
@@ -23,8 +25,8 @@ Two things differ from the vLLM setup:
 | File                            | Role                                                                         |
 | ------------------------------- | ---------------------------------------------------------------------------- |
 | `start_ollama_qwen3_coder.sh` | Server start wrapper: exports tuning env, runs `ollama serve`, pulls model |
-| `source_local` / `.csh`     | Switch the shell to LOCAL (Ollama) mode — bash/sh and tcsh/csh              |
-| `source_cloud` / `.csh`     | Switch the shell back to CLOUD mode (unset overrides)                        |
+| `source_local` / `.csh`     | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local |
+| `source_cloud` / `.csh`     | CLOUD mode: unset those env vars and `unalias claude`/`codex`                |
 | `mcp_qwen.py`                 | MCP server exposing Qwen as `ask_qwen` / `ask_qwen_code` tools           |
 | `usage_report.py`             | Aggregate local Qwen token usage from `usage.log`                          |
 | `usage.log`                   | JSONL usage records written by `mcp_qwen.py` (gitignored)                  |
@@ -106,28 +108,53 @@ routing. A freshly opened shell is already in cloud mode; `source_local`
 exports the Ollama overrides, and `source_cloud` unsets them to return to cloud
 within the same shell.
 
-| File                        | Mode          | Effect                                                                                                                                                |
-| --------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `source_local` / `.csh` | LOCAL(Ollama) | export `ANTHROPIC_BASE_URL=:11434`, `ANTHROPIC_AUTH_TOKEN=ollama`, `ANTHROPIC_API_KEY=""`, Goose `OPENAI_BASE_URL=:11434/v1`, `OLLAMA_HOST` |
-| `source_cloud` / `.csh` | CLOUD         | unset the above (tcsh `unsetenv`); re-set `ANTHROPIC_API_KEY` if you authenticate by key                                                          |
+The env files toggle **Claude Code only** (`ANTHROPIC_*`). They deliberately
+do **not** touch any `OPENAI_*` variable — Codex's cloud OpenAI client reads
+those too, so exporting them would silently redirect Codex to the local server.
+**Goose is local-only and self-contained**: its endpoint lives entirely in
+`~/.config/goose/config.yaml`, so Goose needs no shell env, is unaffected by
+these files, and never conflicts with Codex. See the [Goose](#goose) section.
+
+| File                        | Mode          | Effect                                                                                                  |
+| --------------------------- | ------------- | ------------------------------------------------------------------------------------------------------- |
+| `source_local` / `.csh` | LOCAL(Ollama) | export `ANTHROPIC_BASE_URL=:11434`, `ANTHROPIC_AUTH_TOKEN=ollama`, `ANTHROPIC_API_KEY=""`, `OLLAMA_HOST`; alias `claude`/`codex` to local (see [Aliases](#aliases-set-by-source_local)) |
+| `source_cloud` / `.csh` | CLOUD         | unset the above (tcsh `unsetenv`) and `unalias claude` / `codex`; re-set `ANTHROPIC_API_KEY` if you authenticate by key |
+
+### Aliases set by `source_local`
+
+`source_local` defines two shell aliases so plain `claude` / `codex` run in
+local mode without typing flags; `source_cloud` removes them again:
+
+| Alias                                | Why                                                                        |
+| ------------------------------------ | -------------------------------------------------------------------------- |
+| `claude` → `claude --model qwen3-coder` | env already targets Ollama; the alias just pins the model name             |
+| `codex` → `codex --profile ollama-local` | Codex shares no env (OPENAI_* stays unset), so the profile flag selects local |
+
+After `source_cloud` the aliases are dropped and `claude` / `codex` revert to
+their cloud defaults. (Alias self-reference is safe — bash/csh do not re-expand
+the leading word recursively.)
 
 ### Claude Code
 
 ```bash
 # local
 source ollama/source_local         # tcsh: source ollama/source_local.csh
-claude --model qwen3-coder
+claude                             # alias → claude --model qwen3-coder
 # (optional) alias to bypass model-name validation:
 #   ollama cp qwen3-coder claude-3-5-sonnet
 
 # cloud
 source ollama/source_cloud         # tcsh: source ollama/source_cloud.csh
-claude
+claude                             # alias cleared → cloud default
 ```
 
 ### Codex
 
-Codex switches via `--profile`, independent of the env files. Since Codex
+`source_local` aliases `codex` → `codex --profile ollama-local`; `source_cloud`
+clears it so `codex` is cloud again. You can still invoke either explicitly
+(`codex --profile ollama-local` / `codex`) regardless of which file is sourced.
+
+The profile mechanism is independent of the env files. Since Codex
 v0.136 the profile **must not** live in `config.toml` as a `[profiles.<name>]`
 table (or a `profile = "..."` selector) — Codex rejects it with a "legacy
 profile" error. Keep only the shared provider definition in `config.toml`:
@@ -155,8 +182,32 @@ codex                              # cloud (default profile)
 
 ### Goose
 
-`config.yaml`: `OPENAI_BASE_URL: http://localhost:11434/v1`, `model: qwen3-coder`.
-`source_local` also exports `GOOSE_DISABLE_KEYRING=1` and `GOOSE_TOOLSHIM=1`.
+Goose is **local-LLM only** and fully **self-contained** — it does **not** use
+the `source_local` / `source_cloud` env files and shares **no** environment
+variable with Codex. All of its settings live in `~/.config/goose/config.yaml`:
+
+```yaml
+OPENAI_BASE_URL: http://localhost:11434/v1
+OPENAI_HOST: http://localhost:11434/v1
+OPENAI_BASE_PATH: v1/chat/completions
+GOOSE_DISABLE_KEYRING: 1
+GOOSE_TOOLSHIM: 1
+active_provider: openai
+providers:
+  openai:
+    enabled: true
+    model: qwen3-coder
+    configured: true
+```
+
+Goose reads config-file keys the same way it reads env vars, so keeping
+`OPENAI_BASE_URL` (and the two `GOOSE_*` settings) in `config.yaml` means Goose
+always targets the local server **without** any shell export. This is the key
+to not colliding with Codex: previously `source_local` exported `OPENAI_BASE_URL`
+into the shell, which Codex's cloud OpenAI client also honors and would follow
+to the local endpoint. With the endpoint confined to `config.yaml`, Codex's
+cloud/local choice (its `--profile`) and Goose's local-only target are fully
+independent — no env var is shared, so neither overrides the other.
 
 ---
 
