@@ -33,6 +33,7 @@ Two things differ from the vLLM setup:
 | ------------------------------- | -------------------------------------------------------------------------------------- |
 | `start_ollama_qwen3_coder.sh` | Thin launcher for `qwen3-coder`: sets `MODEL` and sources the shared core          |
 | `start_ollama_gemma4.sh`      | Thin launcher for `gemma4:26b` (override `MODEL=` for another size/quant)          |
+| `start_ollama_gemma3_wsl.sh`  | Thin launcher for `gemma3:4b` on a WSL / GPU-less, low-memory host (CPU inference); caps context low (see [WSL / low-memory (CPU)](#wsl--low-memory-cpu)) |
 | `_ollama_serve_common.sh`     | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in `~/.ollama_active_model` |
 | `source_local` / `.csh`     | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local   |
 | `source_cloud` / `.csh`     | CLOUD mode: unset those env vars and `unalias claude`/`codex`                      |
@@ -75,7 +76,12 @@ ollama run qwen3-coder     # optional REPL smoke test
 ./start_ollama_qwen3_coder.sh        # qwen3-coder (default)
 ./start_ollama_gemma4.sh             # gemma4:26b  (override MODEL= for another size)
 #   MODEL=gemma4:31b ./start_ollama_gemma4.sh
+./start_ollama_gemma3_wsl.sh         # gemma3:4b on WSL / GPU-less CPU host (low ctx)
 ```
+
+For a WSL / GPU-less, low-memory host, use `start_ollama_gemma3_wsl.sh`. It
+differs from the GPU launchers in one way — it caps the context window low so the
+KV cache cannot blow past RAM on CPU. See [WSL / low-memory (CPU)](#wsl--low-memory-cpu).
 
 Each launcher is a thin wrapper: it sets the `MODEL` tag and sources the shared
 core `_ollama_serve_common.sh`. Adding a new model is one more 2-line launcher —
@@ -117,6 +123,56 @@ default) is the primary candidate. Pick a GGUF quantization to fit your memory:
 > On a 24 GB GPU, a strongly quantized GGUF runs with partial CPU offload
 > (`ollama ps` shows the split). Final selection should be confirmed against
 > measured VRAM and speed requirements.
+
+---
+
+## WSL / low-memory (CPU)
+
+The model table above targets large GPU / workstation memory. A typical **WSL
+host has no usable GPU budget and ~8 GB RAM** (`/dev/dri` exists via WSLg but VRAM
+is negligible), so those builds will not load. For that environment, run a small
+model **on CPU** instead.
+
+**Default: `gemma3:4b`** (Google Gemma 3, Q4_K_M). Gemma ran better than Qwen on
+the Linux workstation, and the 4B build fits an 8 GB host with headroom. Other
+Google-family candidates that fit CPU inference:
+
+| Model / tag         | Params | Resident (Q4) | CPU tok/s | Use for                          |
+| ------------------- | ------ | ------------- | --------- | -------------------------------- |
+| `gemma3:1b`       | 1B     | ~0.8 GB      | fast      | ultra-light always-on completion |
+| `gemma2:2b`       | 2B     | ~1.6 GB      | —        | light chat                       |
+| `codegemma:2b`    | 2B     | ~1.6 GB      | —        | code completion (FIM-oriented)   |
+| **`gemma3:4b`** | 4B     | **~2.9 GB**  | **~12**  | chat / edit / MCP delegation     |
+
+Measured on an 8 GB / 12-thread WSL host: `gemma3:4b` runs at **~11–12 tok/s**,
+**~2.9 GB resident, VRAM 0.0 (pure CPU)**, context honored at the launcher's cap.
+
+### Start
+
+```bash
+./start_ollama_gemma3_wsl.sh           # gemma3:4b, OLLAMA_CONTEXT_LENGTH=8192
+#   MODEL=gemma3:1b ./start_ollama_gemma3_wsl.sh          # smaller model
+#   OLLAMA_CONTEXT_LENGTH=4096 ./start_ollama_gemma3_wsl.sh   # tighter RAM
+```
+
+Unlike the GPU launchers (which default `OLLAMA_CONTEXT_LENGTH=64000`), the WSL
+launcher defaults it to **8192**. On CPU with limited RAM, a 16K+ context grows
+the KV cache to 3–4 GB and drives the host into swap (sub-1 tok/s); drop to
+4096 if memory is tight. Both `MODEL` and `OLLAMA_CONTEXT_LENGTH` can be
+overridden before running.
+
+### Use MCP delegation, not direct connect
+
+On WSL the **default integration is [MCP delegation](#mcp-integration)**
+(`ask_local` / `ask_local_code`) — text-in/text-out, which these small models
+handle well. **Do not** point Claude Code / Codex at the local server as a direct
+agentic backend: `gemma3:4b` reports no `tools` capability, and when prompted for
+a tool call it emits the call as **plain-text JSON in `content`**, not a
+structured `tool_calls` block — the client cannot detect it and "hallucinates"
+edits that never reach disk (the tool-calling conversion problem). Direct connect
+would need an Anthropic-emulating gateway (Bifrost / LiteLLM) plus attribution-header
+suppression; MCP delegation avoids all of that. `gemma3` is also not
+thinking-capable, so `mcp_localllm.py` calls it plainly.
 
 ---
 
@@ -308,6 +364,21 @@ Overrides: `OLLAMA_HOST` (default `http://localhost:11434`), `LOCALLLM_MODEL_ID`
 (pin a specific model instead of auto-detecting), `LOCALLLM_MAX_TOKENS`
 (default `2048`), `LOCALLLM_TEMPERATURE` (default `0.2`). Legacy `QWEN_MODEL_ID`
 / `QWEN_USAGE_LOG` are still honored for backward compatibility.
+
+### Dependency
+
+The server framework uses FastMCP, so the `mcp` package must be importable by
+the **same `python3`** that the client launches. The Ollama calls themselves use
+only the standard library; `mcp` is the one third-party requirement.
+
+```bash
+python3 -m pip install --user mcp        # once, for the python3 on PATH
+python3 -c 'import mcp'                   # verify (no output = OK)
+```
+
+> If the client runs a different interpreter, registration connects but tool
+> calls fail with `ModuleNotFoundError: No module named 'mcp'`. Install `mcp`
+> for that interpreter (or register with its absolute `python3` path).
 
 ### Register
 
