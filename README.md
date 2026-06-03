@@ -105,6 +105,22 @@ lives once in the common file. The wrapper:
 > this script** — a daemon started elsewhere (systemd) keeps its own setting.
 > Check the loaded context and CPU/GPU split with `ollama ps`.
 
+> **Hot standby (`OLLAMA_KEEP_ALIVE`):** by default Ollama unloads an idle model
+> after ~5 min, so the next call pays the reload latency. To keep the model
+> resident, set `OLLAMA_KEEP_ALIVE` where the daemon is launched (e.g.
+> `OLLAMA_KEEP_ALIVE=2h`, or `-1` to never unload). Trade-off: the model holds
+> VRAM/RAM while idle. Confirm the unload behaviour with `ollama ps` (the `UNTIL`
+> column). The wrapper defaults this to `2h`; override the env to change it.
+
+> **KV-cache quantization (`OLLAMA_KV_CACHE_TYPE`):** for long contexts the KV
+> cache dominates VRAM. Setting `OLLAMA_KV_CACHE_TYPE=q8_0` (or `q4_0`) shrinks it
+> at a small quality cost; the default is `f16`. In Ollama this **requires
+> `OLLAMA_FLASH_ATTENTION=1`** to take effect. The wrapper sets
+> `OLLAMA_FLASH_ATTENTION=1` and `OLLAMA_KV_CACHE_TYPE=f16` (lossless default);
+> override `OLLAMA_KV_CACHE_TYPE=q8_0` (or `q4_0`) to quantize. Both are
+> server-launch env vars (set them alongside the daemon, not on an
+> already-running one). Verified present in the local Ollama (0.30.2).
+
 ---
 
 ## Models and memory requirements
@@ -123,6 +139,29 @@ default) is the primary candidate. Pick a GGUF quantization to fit your memory:
 > On a 24 GB GPU, a strongly quantized GGUF runs with partial CPU offload
 > (`ollama ps` shows the split). Final selection should be confirmed against
 > measured VRAM and speed requirements.
+
+**Sizing a new model (rough estimate).** Before pulling, estimate weight memory as:
+
+```
+Memory(GB) ≈ Params(B) × Precision(bits) / 8 × α      (α ≈ 1.2–1.3 runtime buffer)
+```
+
+e.g. a 30B model at Q4 (~4.5 bits effective): `30 × 4.5 / 8 × 1.25 ≈ 21 GB` — plus
+the **KV cache**, which grows with context length and is *not* in this figure (see
+KV-cache quantization above). The measured quant table is authoritative for the
+listed builds; use the formula only for first-pass sizing of new candidates.
+
+**VRAM ↔ context length (measured + estimated).** The 4K auto-limit below 24 GB is
+the only hard rule; usable context above it depends on weight size and offload:
+
+| GPU VRAM     | Practical context        | Notes                                                        |
+| ------------ | ------------------------ | ------------------------------------------------------------ |
+| < 24 GB      | 4K (auto), raise w/ care | Ollama auto-limits to 4K; larger needs explicit override + RAM spill |
+| 24 GB        | up to ~64K               | **Measured**: RTX 3090, qwen3-coder @ 64000 ran 7%/93% CPU/GPU split |
+| 48 GB+       | 256K+ (estimate)         | Report-derived, **not measured** here; confirm with `ollama ps` |
+
+> The 24 GB row is measured on this host; other rows are estimates to be confirmed
+> per environment via the `ollama ps` `CONTEXT` column and CPU/GPU split.
 
 ---
 
@@ -362,8 +401,18 @@ called plainly. Only the Python standard library is used (no OpenAI SDK).
 
 Overrides: `OLLAMA_HOST` (default `http://localhost:11434`), `LOCALLLM_MODEL_ID`
 (pin a specific model instead of auto-detecting), `LOCALLLM_MAX_TOKENS`
-(default `2048`), `LOCALLLM_TEMPERATURE` (default `0.2`). Legacy `QWEN_MODEL_ID`
-/ `QWEN_USAGE_LOG` are still honored for backward compatibility.
+(default `2048`), `LOCALLLM_TEMPERATURE` (default `0.2`), `LOCALLLM_TOP_P` /
+`LOCALLLM_TOP_K` (unset → Ollama defaults; forwarded only when set). Legacy
+`QWEN_MODEL_ID` / `QWEN_USAGE_LOG` are still honored for backward compatibility.
+
+> **Multi-turn / thinking accumulation:** the MCP tools are **single-shot** —
+> each `ask_local` / `ask_local_code` call sends only a fresh system+user pair
+> with no prior turns, and thinking-capable models run with `think: false`. So
+> no chain-of-thought is retained or replayed across calls; there is nothing to
+> cleanse on this path. (The separate **direct-connect** path,
+> `claude --model gemma4:26b`, is a real multi-turn conversation; whether reasoning
+> blocks accumulate in history there is the client/Ollama template's
+> responsibility and is **not handled or verified** in this environment.)
 
 ### Dependency
 
@@ -634,6 +683,14 @@ After any Codex plugin reinstall, re-confirm the cache copy still carries the bl
 
 `OLLAMA_CONTEXT_LENGTH` is the **combined** input+output budget per loaded
 model. The `2,048` figure is the per-call **output** limit set by the MCP server.
+
+> **Model-specific sampling (Gemma):** Gemma-family models are tuned for
+> `temperature≈1.0, top_p=0.95, top_k=64`, unlike the conservative `0.2` default
+> that suits qwen3-coder. The MCP server forwards `LOCALLLM_TEMPERATURE`,
+> `LOCALLLM_TOP_P`, and `LOCALLLM_TOP_K` to `/api/chat` `options`. `top_p`/`top_k`
+> are sent only when set, so qwen3-coder keeps Ollama defaults unless you opt in.
+> For `gemma4:*` via MCP, e.g.
+> `LOCALLLM_TEMPERATURE=1.0 LOCALLLM_TOP_P=0.95 LOCALLLM_TOP_K=64`.
 
 ---
 

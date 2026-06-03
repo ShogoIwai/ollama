@@ -38,6 +38,13 @@ FALLBACK_MODEL = "qwen3-coder"
 
 MAX_TOKENS = int(os.environ.get("LOCALLLM_MAX_TOKENS", "2048"))
 TEMPERATURE = float(os.environ.get("LOCALLLM_TEMPERATURE", "0.2"))
+# top_p / top_k are forwarded only when set, so qwen3-coder keeps Ollama's
+# defaults while Gemma can opt into its recommended sampling
+# (e.g. LOCALLLM_TOP_P=0.95 LOCALLLM_TOP_K=64).
+_TOP_P_RAW = os.environ.get("LOCALLLM_TOP_P")
+_TOP_K_RAW = os.environ.get("LOCALLLM_TOP_K")
+TOP_P = float(_TOP_P_RAW) if _TOP_P_RAW else None
+TOP_K = int(_TOP_K_RAW) if _TOP_K_RAW else None
 
 # Lightweight token-usage instrumentation. Append one JSON object per call.
 USAGE_LOG = (
@@ -119,6 +126,11 @@ def _log_usage(tool: str, model: str, system: str, user: str, resp: dict, latenc
 
 def _chat(system: str, user: str, tool: str = "_chat") -> str:
     model = _resolve_model()
+    options = {"num_predict": MAX_TOKENS, "temperature": TEMPERATURE}
+    if TOP_P is not None:
+        options["top_p"] = TOP_P
+    if TOP_K is not None:
+        options["top_k"] = TOP_K
     payload = {
         "model": model,
         "messages": [
@@ -126,7 +138,7 @@ def _chat(system: str, user: str, tool: str = "_chat") -> str:
             {"role": "user", "content": user},
         ],
         "stream": False,
-        "options": {"num_predict": MAX_TOKENS, "temperature": TEMPERATURE},
+        "options": options,
     }
     # Suppress chain-of-thought for thinking-capable models so the answer is
     # returned in `content` rather than eaten by reasoning under the token cap.

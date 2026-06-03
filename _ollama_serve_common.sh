@@ -25,6 +25,18 @@ export OLLAMA_HOST="${OLLAMA_HOST:-http://localhost:11434}"
 # so override explicitly (minimum 64K recommended for coding agents).
 export OLLAMA_CONTEXT_LENGTH="${OLLAMA_CONTEXT_LENGTH:-64000}"
 
+# Hot standby: keep the model resident so back-to-back agent calls don't pay the
+# reload latency. Default 2h; set -1 to never unload, or a short value to free
+# VRAM sooner. Applies only to the daemon launched below.
+export OLLAMA_KEEP_ALIVE="${OLLAMA_KEEP_ALIVE:-2h}"
+
+# KV-cache quantization shrinks long-context VRAM at a small quality cost. It
+# only takes effect when flash attention is on, so enable both together. Leave
+# OLLAMA_KV_CACHE_TYPE at f16 (default, lossless) to disable; set q8_0 / q4_0 to
+# quantize.
+export OLLAMA_FLASH_ATTENTION="${OLLAMA_FLASH_ATTENTION:-1}"
+export OLLAMA_KV_CACHE_TYPE="${OLLAMA_KV_CACHE_TYPE:-f16}"
+
 # If a daemon is already serving on this host (e.g. systemd unit), there is
 # nothing to start. `ollama serve` would otherwise fail with
 # "bind: address already in use". Just report and exit successfully.
