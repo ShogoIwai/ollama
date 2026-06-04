@@ -30,13 +30,13 @@ Two things differ from the vLLM setup:
 
 | File                            | Role                                                                                                                                                     |
 | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `version_up.sh`               | Reinstall Ollama to the latest release, stop/disable the systemd unit, and print the version (manual update helper)                                      |
 | `start_ollama_qwen3_coder.sh` | Thin launcher for `qwen3-coder`: sets `MODEL` and sources the shared core                                                                            |
 | `start_ollama_gemma4.sh`      | Thin launcher for `gemma4:26b` (override `MODEL=` for another size/quant)                                                                            |
 | `start_ollama_gemma3_wsl.sh`  | Thin launcher for `gemma3:4b` on a WSL / GPU-less, low-memory host (CPU inference); caps context low (see [WSL / low-memory (CPU)](#wsl--low-memory-cpu)) |
 | `_ollama_serve_common.sh`     | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in `~/.ollama_active_model`                 |
 | `source_local` / `.csh`     | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local                                                                     |
 | `source_cloud` / `.csh`     | CLOUD mode: unset those env vars and `unalias claude`/`codex`                                                                                        |
-| `version_up.sh`               | Reinstall Ollama to the latest release, stop/disable the systemd unit, and print the version (manual update helper)                                      |
 | `mcp_localllm.py`             | MCP server exposing the active local model as `ask_local` / `ask_local_code` tools (local-model debugging)                                           |
 | `usage_report.py`             | Aggregate local LLM token usage from `usage.log`                                                                                                       |
 | `usage.log`                   | JSONL usage records written by `mcp_localllm.py` (gitignored)                                                                                          |
