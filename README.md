@@ -99,9 +99,10 @@ lives once in the common file. The wrapper:
 > loaded model. Run both side by side only if you give each its own
 > `OLLAMA_HOST` port.
 
-> **Context length:** Ollama auto-limits context to 4K when VRAM < 24GB (e.g.
-> RTX 3090 24GB defaults to 32768). Agent use needs more, so the wrapper sets
-> `OLLAMA_CONTEXT_LENGTH=64000`. **This applies only to the `serve` launched by
+> **Context length:** Ollama's auto-picked default is too small for agent use —
+> as low as 4K when VRAM < 24GB, and even a 24GB RTX 3090 only defaults to
+> ~32768. So the wrapper sets `OLLAMA_CONTEXT_LENGTH=64000`. **This applies only
+> to the `serve` launched by
 > this script** — a daemon started elsewhere (systemd) keeps its own setting.
 > Check the loaded context and CPU/GPU split with `ollama ps`.
 

@@ -15,13 +15,32 @@ export ANTHROPIC_API_KEY=""
 
 # --- Model / profile selection (override before sourcing to switch model) ---
 # LOCALLLM_MODEL         picks the Ollama tag the `claude` alias pins (e.g.
-#                        qwen3-coder, gemma4:26b). Default: qwen3-coder.
+#                        qwen3-coder, gemma4:26b).
 # LOCALLLM_CODEX_PROFILE picks the Codex profile the `codex` alias selects
 #                        (overlay file ~/.codex/<profile>.config.toml that sets
 #                        the model). Default: ollama-local.
 # Example:  export LOCALLLM_MODEL=gemma4:26b  before  source ollama/source_local
-: "${LOCALLLM_MODEL:=qwen3-coder}"
-: "${LOCALLLM_CODEX_PROFILE:=ollama-local}"
+#
+# Auto-detection: the start scripts (_ollama_serve_common.sh) record the launched
+# model tag in ~/.ollama_active_model. If LOCALLLM_MODEL is not already set, we
+# read that marker so sourcing this file tracks whichever model you started. An
+# explicit `export LOCALLLM_MODEL ...` before sourcing always wins.
+if [ -z "${LOCALLLM_MODEL:-}" ]; then
+    if [ -r "${HOME}/.ollama_active_model" ]; then
+        LOCALLLM_MODEL="$(cat "${HOME}/.ollama_active_model")"
+    else
+        LOCALLLM_MODEL="qwen3-coder"
+    fi
+fi
+
+# Derive the Codex profile (overlay file ~/.codex/<profile>.config.toml) from the
+# model unless explicitly set. Add a case + overlay file per new local model.
+if [ -z "${LOCALLLM_CODEX_PROFILE:-}" ]; then
+    case "${LOCALLLM_MODEL}" in
+        gemma4*) LOCALLLM_CODEX_PROFILE="ollama-gemma" ;;
+        *)       LOCALLLM_CODEX_PROFILE="ollama-local" ;;
+    esac
+fi
 export LOCALLLM_MODEL LOCALLLM_CODEX_PROFILE
 
 # --- Local-mode aliases (cleared by source_cloud) ---
