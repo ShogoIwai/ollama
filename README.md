@@ -1,6 +1,6 @@
 # Local LLM Workflow — Ollama + Claude Code + Codex
 
-`ollama/` provides a local LLM environment for Claude Code, Codex, and Goose,
+`ollama/` provides a local LLM environment for Claude Code and Codex,
 built on **Ollama**. Two local models are supported interchangeably —
 **`qwen3-coder`** (default, non-thinking) and **`gemma4:26b`** (thinking-capable
 MoE) — each with its own thin launcher (`start_ollama_qwen3_coder.sh` /
@@ -19,8 +19,7 @@ Two things differ from the vLLM setup:
    from `vllm/`. The two are independent; you can keep `vllm/` around for
    rollback and switch clients by env/profile only.
 2. **No quota monitoring.** cloud / local switching is **static, per client**:
-   Claude Code by env + alias, Codex by profile/alias, and Goose is local-only
-   via its own `config.yaml` (no env, never cloud). No client shares an
+   Claude Code by env + alias, Codex by profile/alias. No client shares an
    `OPENAI_*` env var, so none can override another. The 5h-quota dynamic routing
    from `vllm/` (`proxy.py` / `quota_route.py` / `usage_route_hook.py` /
    `codex_quota_context.py`) is **not** ported here.
@@ -29,17 +28,18 @@ Two things differ from the vLLM setup:
 
 ## Directory Contents
 
-| File                            | Role                                                                                   |
-| ------------------------------- | -------------------------------------------------------------------------------------- |
-| `start_ollama_qwen3_coder.sh` | Thin launcher for `qwen3-coder`: sets `MODEL` and sources the shared core          |
-| `start_ollama_gemma4.sh`      | Thin launcher for `gemma4:26b` (override `MODEL=` for another size/quant)          |
+| File                            | Role                                                                                                                                                     |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `start_ollama_qwen3_coder.sh` | Thin launcher for `qwen3-coder`: sets `MODEL` and sources the shared core                                                                            |
+| `start_ollama_gemma4.sh`      | Thin launcher for `gemma4:26b` (override `MODEL=` for another size/quant)                                                                            |
 | `start_ollama_gemma3_wsl.sh`  | Thin launcher for `gemma3:4b` on a WSL / GPU-less, low-memory host (CPU inference); caps context low (see [WSL / low-memory (CPU)](#wsl--low-memory-cpu)) |
-| `_ollama_serve_common.sh`     | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in `~/.ollama_active_model` |
-| `source_local` / `.csh`     | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local   |
-| `source_cloud` / `.csh`     | CLOUD mode: unset those env vars and `unalias claude`/`codex`                      |
-| `mcp_localllm.py`             | MCP server exposing the active local model as `ask_local` / `ask_local_code` tools |
-| `usage_report.py`             | Aggregate local LLM token usage from `usage.log`                                     |
-| `usage.log`                   | JSONL usage records written by `mcp_localllm.py` (gitignored)                        |
+| `_ollama_serve_common.sh`     | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in `~/.ollama_active_model`                 |
+| `source_local` / `.csh`     | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local                                                                     |
+| `source_cloud` / `.csh`     | CLOUD mode: unset those env vars and `unalias claude`/`codex`                                                                                        |
+| `version_up.sh`               | Reinstall Ollama to the latest release, stop/disable the systemd unit, and print the version (manual update helper)                                      |
+| `mcp_localllm.py`             | MCP server exposing the active local model as `ask_local` / `ask_local_code` tools (local-model debugging)                                           |
+| `usage_report.py`             | Aggregate local LLM token usage from `usage.log`                                                                                                       |
+| `usage.log`                   | JSONL usage records written by `mcp_localllm.py` (gitignored)                                                                                          |
 
 ---
 
@@ -154,11 +154,11 @@ listed builds; use the formula only for first-pass sizing of new candidates.
 **VRAM ↔ context length (measured + estimated).** The 4K auto-limit below 24 GB is
 the only hard rule; usable context above it depends on weight size and offload:
 
-| GPU VRAM     | Practical context        | Notes                                                        |
-| ------------ | ------------------------ | ------------------------------------------------------------ |
-| < 24 GB      | 4K (auto), raise w/ care | Ollama auto-limits to 4K; larger needs explicit override + RAM spill |
-| 24 GB        | up to ~64K               | **Measured**: RTX 3090, qwen3-coder @ 64000 ran 7%/93% CPU/GPU split |
-| 48 GB+       | 256K+ (estimate)         | Report-derived, **not measured** here; confirm with `ollama ps` |
+| GPU VRAM | Practical context        | Notes                                                                      |
+| -------- | ------------------------ | -------------------------------------------------------------------------- |
+| < 24 GB  | 4K (auto), raise w/ care | Ollama auto-limits to 4K; larger needs explicit override + RAM spill       |
+| 24 GB    | up to ~64K               | **Measured**: RTX 3090, qwen3-coder @ 64000 ran 7%/93% CPU/GPU split |
+| 48 GB+   | 256K+ (estimate)         | Report-derived,**not measured** here; confirm with `ollama ps`     |
 
 > The 24 GB row is measured on this host; other rows are estimates to be confirmed
 > per environment via the `ollama ps` `CONTEXT` column and CPU/GPU split.
@@ -176,12 +176,12 @@ model **on CPU** instead.
 the Linux workstation, and the 4B build fits an 8 GB host with headroom. Other
 Google-family candidates that fit CPU inference:
 
-| Model / tag         | Params | Resident (Q4) | CPU tok/s | Use for                          |
-| ------------------- | ------ | ------------- | --------- | -------------------------------- |
-| `gemma3:1b`       | 1B     | ~0.8 GB      | fast      | ultra-light always-on completion |
-| `gemma2:2b`       | 2B     | ~1.6 GB      | —        | light chat                       |
-| `codegemma:2b`    | 2B     | ~1.6 GB      | —        | code completion (FIM-oriented)   |
-| **`gemma3:4b`** | 4B     | **~2.9 GB**  | **~12**  | chat / edit / MCP delegation     |
+| Model / tag             | Params | Resident (Q4)     | CPU tok/s     | Use for                          |
+| ----------------------- | ------ | ----------------- | ------------- | -------------------------------- |
+| `gemma3:1b`           | 1B     | ~0.8 GB           | fast          | ultra-light always-on completion |
+| `gemma2:2b`           | 2B     | ~1.6 GB           | —            | light chat                       |
+| `codegemma:2b`        | 2B     | ~1.6 GB           | —            | code completion (FIM-oriented)   |
+| **`gemma3:4b`** | 4B     | **~2.9 GB** | **~12** | chat / edit / MCP debug          |
 
 Measured on an 8 GB / 12-thread WSL host: `gemma3:4b` runs at **~11–12 tok/s**,
 **~2.9 GB resident, VRAM 0.0 (pure CPU)**, context honored at the launcher's cap.
@@ -200,17 +200,18 @@ the KV cache to 3–4 GB and drives the host into swap (sub-1 tok/s); drop to
 4096 if memory is tight. Both `MODEL` and `OLLAMA_CONTEXT_LENGTH` can be
 overridden before running.
 
-### Use MCP delegation, not direct connect
+### Use the MCP path, not direct connect
 
-On WSL the **default integration is [MCP delegation](#mcp-integration)**
+On WSL the **safe integration is the [MCP path](#mcp-integration)**
 (`ask_local` / `ask_local_code`) — text-in/text-out, which these small models
-handle well. **Do not** point Claude Code / Codex at the local server as a direct
+handle well, and which doubles as the local-model debug entry point. **Do not**
+point Claude Code / Codex at the local server as a direct
 agentic backend: `gemma3:4b` reports no `tools` capability, and when prompted for
 a tool call it emits the call as **plain-text JSON in `content`**, not a
 structured `tool_calls` block — the client cannot detect it and "hallucinates"
 edits that never reach disk (the tool-calling conversion problem). Direct connect
 would need an Anthropic-emulating gateway (Bifrost / LiteLLM) plus attribution-header
-suppression; MCP delegation avoids all of that. `gemma3` is also not
+suppression; the MCP path avoids all of that. `gemma3` is also not
 thinking-capable, so `mcp_localllm.py` calls it plainly.
 
 ---
@@ -225,9 +226,6 @@ within the same shell.
 The env files toggle **Claude Code only** (`ANTHROPIC_*`). They deliberately
 do **not** touch any `OPENAI_*` variable — Codex's cloud OpenAI client reads
 those too, so exporting them would silently redirect Codex to the local server.
-**Goose is local-only and self-contained**: its endpoint lives entirely in
-`~/.config/goose/config.yaml`, so Goose needs no shell env, is unaffected by
-these files, and never conflicts with Codex. See the [Goose](#goose) section.
 
 | File                        | Mode          | Effect                                                                                                                                                                                           |
 | --------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -242,10 +240,10 @@ each alias selects is **no longer hard-coded** — it is **auto-detected from th
 running launcher** and can still be overridden by two env vars you set **before**
 sourcing:
 
-| Env var (override before sourcing) | Default                              | Controls                                          |
-| ---------------------------------- | ------------------------------------ | ------------------------------------------------- |
+| Env var (override before sourcing) | Default                               | Controls                                          |
+| ---------------------------------- | ------------------------------------- | ------------------------------------------------- |
 | `LOCALLLM_MODEL`                 | auto (marker → else `qwen3-coder`) | the model tag pinned by the `claude` alias      |
-| `LOCALLLM_CODEX_PROFILE`         | derived from `LOCALLLM_MODEL`      | the Codex profile selected by the `codex` alias |
+| `LOCALLLM_CODEX_PROFILE`         | derived from `LOCALLLM_MODEL`       | the Codex profile selected by the `codex` alias |
 
 **Auto-detection (marker file).** Each start script records the launched model
 tag in `~/.ollama_active_model` (written by `_ollama_serve_common.sh` as soon as
@@ -353,42 +351,16 @@ codex --profile ollama-gemma       # local gemma4:26b  (loads ollama-gemma.confi
 codex                              # cloud (default profile)
 ```
 
-### Goose
-
-Goose is **local-LLM only** and fully **self-contained** — it does **not** use
-the `source_local` / `source_cloud` env files and shares **no** environment
-variable with Codex. All of its settings live in `~/.config/goose/config.yaml`:
-
-```yaml
-OPENAI_BASE_URL: http://localhost:11434/v1
-OPENAI_HOST: http://localhost:11434/v1
-OPENAI_BASE_PATH: v1/chat/completions
-GOOSE_DISABLE_KEYRING: 1
-GOOSE_TOOLSHIM: 1
-active_provider: openai
-providers:
-  openai:
-    enabled: true
-    model: qwen3-coder
-    configured: true
-```
-
-To switch Goose's model, edit the single `model:` line in `config.yaml`
-(e.g. `model: gemma4:26b`) — Goose has no env-var override here, the value is
-read straight from the file.
-
-Goose reads config-file keys the same way it reads env vars, so keeping
-`OPENAI_BASE_URL` (and the two `GOOSE_*` settings) in `config.yaml` means Goose
-always targets the local server **without** any shell export. This is the key
-to not colliding with Codex: previously `source_local` exported `OPENAI_BASE_URL`
-into the shell, which Codex's cloud OpenAI client also honors and would follow
-to the local endpoint. With the endpoint confined to `config.yaml`, Codex's
-cloud/local choice (its `--profile`) and Goose's local-only target are fully
-independent — no env var is shared, so neither overrides the other.
-
 ---
 
 ## MCP Integration
+
+> **Scope:** the MCP server is positioned as a **local-model debugging /
+> inspection path** — a quick text-in/text-out way to exercise whichever model
+> Ollama has loaded from inside Claude Code / Codex. It is **not** a token-saving
+> delegation layer; the cloud-vs-local decision is made up front by static
+> switching (see [cloud / local static switching](#cloud--local-static-switching)),
+> per whole task, not per subtask.
 
 `mcp_localllm.py` exposes the **active local model** as two stdio MCP tools. It
 is model-agnostic: it auto-detects whichever model Ollama currently has loaded
@@ -460,6 +432,28 @@ python3 ollama/usage_report.py --by tool  # group by tool
 python3 ollama/usage_report.py --json     # machine-readable totals
 ```
 
+### Token limits and sampling
+
+| Limit                | Value                                         | Source                                                        |
+| -------------------- | --------------------------------------------- | ------------------------------------------------------------- |
+| Output per call      | **≤ 2,048 tokens**                     | `mcp_localllm.py` `num_predict` (`LOCALLLM_MAX_TOKENS`) |
+| Sampling temperature | `0.2`                                       | `mcp_localllm.py` (`LOCALLLM_TEMPERATURE`)                |
+| Context window       | `OLLAMA_CONTEXT_LENGTH` (64000 via wrapper) | server-side (per loaded model)                                |
+
+`OLLAMA_CONTEXT_LENGTH` is the **combined** input+output budget per loaded
+model. The `2,048` figure is the per-call **output** limit set by the MCP server.
+Pack as much relevant context as the task needs up to the context window; split
+into multiple calls only when the input exceeds it, or when the expected answer
+exceeds the 2,048-token output limit.
+
+> **Model-specific sampling (Gemma):** Gemma-family models are tuned for
+> `temperature≈1.0, top_p=0.95, top_k=64`, unlike the conservative `0.2` default
+> that suits qwen3-coder. The MCP server forwards `LOCALLLM_TEMPERATURE`,
+> `LOCALLLM_TOP_P`, and `LOCALLLM_TOP_K` to `/api/chat` `options`. `top_p`/`top_k`
+> are sent only when set, so qwen3-coder keeps Ollama defaults unless you opt in.
+> For `gemma4:*` via MCP, e.g.
+> `LOCALLLM_TEMPERATURE=1.0 LOCALLLM_TOP_P=0.95 LOCALLLM_TOP_K=64`.
+
 ---
 
 ## Tips: Codex stop-review-gate rg Process Lingering Issue
@@ -507,209 +501,44 @@ The hook matches `rg` processes by **session ID (SID)**. SID is inherited from t
 
 > **Best-effort:** this is not a perfect filter. `rg` processes started from the same terminal session that launched Claude Code share the same SID and would also be killed. In practice this trade-off is acceptable — intentional long-running `rg` searches in the same terminal as an active Claude Code session are rare.
 
----
+### Optional: route the stop-gate's review reasoning to the local model
 
-## Delegation Mode
+The Codex stop-time review gate runs from a **fixed prompt template** — not text
+Claude generates per turn. Only the `{{CLAUDE_RESPONSE_BLOCK}}` placeholder is
+substituted at runtime with the previous Claude turn's output; the ALLOW/BLOCK
+contract and fast-path rules are hard-coded in the template, which
+`stop-review-gate-hook.mjs` / `codex-companion.mjs` read and run.
 
-Both Claude Code and Codex act as orchestration layers that can route individual
-subtasks to the local Qwen for the core reasoning or generation step. This
-applies across all cloud models — the same policy governs Claude Code and Codex
-regardless of which model or effort level is active.
-
-### Delegation Principle
-
-This section is the **single source of truth** for both the Qwen offload
-criteria and the MCP call best practices. The client configuration files
-(`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`) should reference this section
-rather than restate the rules, so all clients stay in sync.
-
-The key design point is that delegation should **not** be handled as a static
-model-switch policy. Instead, the decision should be based on the **task
-characteristics** and on whether moving work to Qwen actually reduces the
-expensive reasoning burden on the primary agent.
-
-In other words, the question is not "which model is active?" but "is this
-subtask a good candidate for offload?".
-
-Model choice and effort level are an **orthogonal** axis. They control how
-deeply the cloud model reasons about the work it keeps — not whether a subtask is
-offloaded. A weaker/cheaper model does not mean "offload everything," and a
-stronger model does not mean "offload nothing"; the offload boundary is the same
-in both cases and is determined only by task shape.
-
-#### Offload criteria (when to route to Qwen)
-
-**Good offload candidates**
-
-- Highly repetitive or formulaic work
-- Localized inputs with limited context (one file, one function, a short passage)
-- Outputs that are easy to verify quickly
-- Tasks where small formatting or wording differences are acceptable
-- Boilerplate generation, stubs, short summaries, translation, and simple transformations
-
-**Poor offload candidates**
-
-- Cross-file reasoning or system-wide consistency checks
-- Root-cause analysis and architecture decisions
-- Tasks where mistakes can silently introduce bugs
-- Cases where preparing the handoff context is almost as expensive as doing the work directly
-- Anything requiring the delegate model to read files by path, call tools, or maintain state across calls
-
-The decision procedure is the same for every client and every model:
-
-1. classify the task by shape first
-2. decide whether delegation reduces the primary agent's reasoning load
-3. then choose whether to route the subtask to local Qwen
-
-That keeps the system portable across Claude Code, Codex, and future clients,
-because the offload decision is expressed in terms of work shape rather than in
-terms of a specific model family.
-
-#### Call best practices (how to call the MCP tools)
-
-These apply identically to every client (Claude Code, Codex, future clients).
-
-**Tool selection**
-
-| Tool                                 | Use for                                                                      |
-| ------------------------------------ | ---------------------------------------------------------------------------- |
-| `ask_local(prompt)`                | Prose: Q&A, explanations, summaries, translation, comment/docstring rewrites |
-| `ask_local_code(language, prompt)` | Code: generation, refactoring, unit-test skeletons, stubs, code translation  |
-
-**Routing rules**
-
-1. **Pure Q&A / explanation / summary / translation** (good candidate)
-   → call `ask_local(prompt=<full request>)`; return the response verbatim.
-2. **Code generation / refactoring / unit tests** (formulaic, self-contained)
-   → determine the language from context; call `ask_local_code(language=<lang>, prompt=<request + required context>)`; return verbatim.
-3. **Tasks requiring file I/O** → the client reads/searches files itself, passes
-   the actual relevant content (never a path) to Qwen, then applies the result
-   with its own editing tools and verifies.
-4. **Multi-step tasks** → break into the smallest steps; offload each good
-   candidate; keep root-cause analysis and cross-file reasoning in the cloud
-   model; the client owns orchestration, context packaging, and validation.
-
-**Handoff constraints** — Qwen has no filesystem access, no tool access, and no
-memory across calls. Always pass the actual relevant text in the prompt; never
-ask Qwen to read a path, call a tool, or rely on a previous call.
-
-**What NOT to do when offloading**
-
-- Do not also generate the answer yourself for an offloaded subtask.
-- Do not restate Qwen's output in your own words when its output suffices.
-- Do not call Qwen and then layer your own commentary on top.
-- Do not force-offload a poor candidate (cross-file, root-cause, high-risk) just to save tokens.
-
-**Token budget** — see [Token Limits](#token-limits). In short: ≤ 2,048 output
-tokens per call. Pack as much relevant context as the task needs, up to the
-model's context window. Split into multiple calls only when the input exceeds
-the context window (one file per call, combine yourself) or the expected answer
-exceeds the 2,048-token output limit (split the output across calls).
-
-### Architecture
-
-```
-User → Claude Code → MCP (stdio) → mcp_localllm.py → Ollama :11434 → active model
-User → Codex       → MCP (stdio) → mcp_localllm.py → Ollama :11434 → active model
-```
-
-The cloud model handles orchestration: reading files, running searches, applying
-edits, and verifying results. Qwen handles the text-in/text-out reasoning or
-generation step.
-
-### Configuration locations
-
-The offload criteria and call best practices live only in the
-[Delegation Principle](#delegation-principle) above. The per-client files below
-do **not** restate them — they carry a pointer to that section plus any
-client-specific note (tool names, who owns file I/O):
-
-| Client      | Configuration file      |
-| ----------- | ----------------------- |
-| Claude Code | `~/.claude/CLAUDE.md` |
-| Codex       | `~/.codex/AGENTS.md`  |
-
-### Codex stop-review-gate delegation
-
-The Codex stop-time review gate (see
-[Tips: rg Process Lingering](#tips-codex-stop-review-gate-rg-process-lingering-issue))
-is one concrete place where delegation is wired in. The gate runs from a **fixed
-prompt template** — not text Claude generates per turn. Only the
-`{{CLAUDE_RESPONSE_BLOCK}}` placeholder is substituted at runtime with the previous
-Claude turn's output; the ALLOW/BLOCK contract and fast-path rules are hard-coded in
-the template, which `stop-review-gate-hook.mjs` / `codex-companion.mjs` read and run.
-
-To make the gate offload its review reasoning to Qwen (token savings) while Codex keeps
-file I/O and the final ALLOW/BLOCK decision, add this **Qwen delegation block** to the
-prompt template:
+If you want the gate to run its review reasoning on the **local model** (so Codex
+keeps file I/O and the final ALLOW/BLOCK decision), add this block to the prompt
+template:
 
 ```text
-When reviewing actual code changes and local Qwen MCP tools are available, delegate
-the review reasoning to Qwen after gathering the relevant repository context locally.
-Pass Qwen the concrete diff and relevant file snippets; do not ask Qwen to read paths
-or use tools. Keep all file I/O, command execution, and final ALLOW/BLOCK decision in
-Codex. If the previous turn did not make direct edits, return ALLOW immediately without
-calling Qwen.
+When reviewing actual code changes and local LLM MCP tools are available, run
+the review reasoning on the local model after gathering the relevant repository
+context locally. Pass it the concrete diff and relevant file snippets; do not ask
+it to read paths or use tools. Keep all file I/O, command execution, and the final
+ALLOW/BLOCK decision in Codex. If the previous turn did not make direct edits,
+return ALLOW immediately without calling the local model.
 ```
 
-The block must be present in **both** prompt copies, because a plugin reinstall / cache
-refresh overwrites the cache copy from the source copy:
+The block must be present in **both** prompt copies, because a plugin reinstall /
+cache refresh overwrites the cache copy from the source copy:
 
 | File                                                                                      | Purpose                                                                         |
 | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
 | `~/.claude/plugins/cache/openai-codex/codex/<ver>/prompts/stop-review-gate.md`          | Runtime prompt used for the stop-gate Codex task                                |
 | `~/.claude/plugins/marketplaces/openai-codex/plugins/codex/prompts/stop-review-gate.md` | Source prompt to keep in sync so reinstall/cache refresh does not lose the rule |
 
-The prompt-level rule is inert unless the `localllm` MCP server is also exposed to the
-Codex session via `~/.codex/config.toml` (`[mcp_servers.localllm]`, pointing at
+The prompt-level rule is inert unless the `localllm` MCP server is also exposed to
+the Codex session via `~/.codex/config.toml` (`[mcp_servers.localllm]`, pointing at
 `$REP/ollama/mcp_localllm.py`). Verify both the block and the MCP wiring with:
 
 ```sh
-grep -c delegate \
+grep -c "local model" \
   ~/.claude/plugins/cache/openai-codex/codex/*/prompts/stop-review-gate.md \
   ~/.claude/plugins/marketplaces/openai-codex/plugins/codex/prompts/stop-review-gate.md
 grep -n localllm ~/.codex/config.toml
 ```
 
 After any Codex plugin reinstall, re-confirm the cache copy still carries the block.
-
-### Token Limits
-
-| Limit                    | Value                                         | Source                                                        |
-| ------------------------ | --------------------------------------------- | ------------------------------------------------------------- |
-| Output per call (client) | **≤ 2,048 tokens**                     | `mcp_localllm.py` `num_predict` (`LOCALLLM_MAX_TOKENS`) |
-| Sampling temperature     | `0.2`                                       | `mcp_localllm.py` (`LOCALLLM_TEMPERATURE`)                |
-| Context window           | `OLLAMA_CONTEXT_LENGTH` (64000 via wrapper) | server-side (per loaded model)                                |
-
-`OLLAMA_CONTEXT_LENGTH` is the **combined** input+output budget per loaded
-model. The `2,048` figure is the per-call **output** limit set by the MCP server.
-
-> **Model-specific sampling (Gemma):** Gemma-family models are tuned for
-> `temperature≈1.0, top_p=0.95, top_k=64`, unlike the conservative `0.2` default
-> that suits qwen3-coder. The MCP server forwards `LOCALLLM_TEMPERATURE`,
-> `LOCALLLM_TOP_P`, and `LOCALLLM_TOP_K` to `/api/chat` `options`. `top_p`/`top_k`
-> are sent only when set, so qwen3-coder keeps Ollama defaults unless you opt in.
-> For `gemma4:*` via MCP, e.g.
-> `LOCALLLM_TEMPERATURE=1.0 LOCALLLM_TOP_P=0.95 LOCALLLM_TOP_K=64`.
-
----
-
-## Risks and notes
-
-- **Context default trap:** Ollama auto-limits to 4K below 24 GB VRAM. Set
-  `OLLAMA_CONTEXT_LENGTH` (≥ 64K) explicitly for agent use.
-- **Tool-call (function calling) behavior:** depends on model/template; verify
-  Goose / Codex tool calls after migrating.
-- **Model equivalence:** AWQ(30B-A3B) and GGUF(qwen3-coder) are different builds;
-  output quality/speed can differ. Track delegation quality regression via
-  `usage_report.py` before/after.
-- **Static-switch responsibility:** dynamic routing is gone, so cloud/local
-  selection is the user's explicit choice. There is no automatic quota-exhaustion
-  fallback.
-
-## Rollback
-
-The migration is local (base_url + start script + env + repo). To revert,
-ignore `ollama/` and use the previous `vllm/` environment (`start_vllm_*.sh`
-plus quota monitoring). The two repos are independent, so you can also run
-`ollama` alongside and switch clients by env/profile only.

@@ -5,9 +5,7 @@
 #
 # NOTE: This file only touches ANTHROPIC_* (Claude Code). It deliberately does
 # NOT export any OPENAI_* var: Codex's cloud OpenAI client reads those too, so
-# exporting them here would silently redirect Codex to the local server. Goose
-# is local-only and gets its endpoint entirely from ~/.config/goose/config.yaml,
-# so it needs no shell env and never conflicts with Codex.
+# exporting them here would silently redirect Codex to the local server.
 export OLLAMA_HOST="http://localhost:11434"
 
 # --- Claude Code (Anthropic-compatible /v1/messages, Ollama v0.14.0+) ---
