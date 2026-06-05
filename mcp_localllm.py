@@ -9,7 +9,7 @@ Ollama and adapts its behavior to that model's capabilities:
 - Capabilities are read from `/api/show`. If the model reports `thinking`
   (e.g. gemma4), the request sets `think: false` so the answer lands in
   `content` instead of being consumed by chain-of-thought reasoning under the
-  output-token budget. Non-thinking models (e.g. qwen3-coder) are called plainly.
+  output-token budget. Non-thinking models are called plainly.
 
 Calls go to Ollama's native `/api/chat` endpoint (so the `think` flag is
 available); only the Python standard library is used, no third-party SDK.
@@ -34,11 +34,11 @@ if OLLAMA_HOST.endswith("/v1"):
 # Optional pin. When unset the active model is auto-detected per call. Falls
 # back to the legacy QWEN_MODEL_ID name for backward compatibility.
 MODEL_OVERRIDE = os.environ.get("LOCALLLM_MODEL_ID") or os.environ.get("QWEN_MODEL_ID")
-FALLBACK_MODEL = "qwen3-coder"
+FALLBACK_MODEL = "gemma4:26b"
 
 MAX_TOKENS = int(os.environ.get("LOCALLLM_MAX_TOKENS", "2048"))
 TEMPERATURE = float(os.environ.get("LOCALLLM_TEMPERATURE", "0.2"))
-# top_p / top_k are forwarded only when set, so qwen3-coder keeps Ollama's
+# top_p / top_k are forwarded only when set, so non-Gemma models keep Ollama's
 # defaults while Gemma can opt into its recommended sampling
 # (e.g. LOCALLLM_TOP_P=0.95 LOCALLLM_TOP_K=64).
 _TOP_P_RAW = os.environ.get("LOCALLLM_TOP_P")
