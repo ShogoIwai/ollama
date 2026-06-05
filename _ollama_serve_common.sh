@@ -31,11 +31,13 @@ export OLLAMA_CONTEXT_LENGTH="${OLLAMA_CONTEXT_LENGTH:-64000}"
 export OLLAMA_KEEP_ALIVE="${OLLAMA_KEEP_ALIVE:-2h}"
 
 # KV-cache quantization shrinks long-context VRAM at a small quality cost. It
-# only takes effect when flash attention is on, so enable both together. Leave
-# OLLAMA_KV_CACHE_TYPE at f16 (default, lossless) to disable; set q8_0 / q4_0 to
-# quantize.
+# only takes effect when flash attention is on, so enable both together. Default
+# is q8_0: roughly halves KV-cache VRAM versus f16 with quality loss below the
+# measurement noise floor, which is what makes 30B+ models fit 24GB at the 64K
+# context above. Set OLLAMA_KV_CACHE_TYPE=f16 to disable (lossless), or q4_0 to
+# quantize harder.
 export OLLAMA_FLASH_ATTENTION="${OLLAMA_FLASH_ATTENTION:-1}"
-export OLLAMA_KV_CACHE_TYPE="${OLLAMA_KV_CACHE_TYPE:-f16}"
+export OLLAMA_KV_CACHE_TYPE="${OLLAMA_KV_CACHE_TYPE:-q8_0}"
 
 # If a daemon is already serving on this host (e.g. systemd unit), there is
 # nothing to start. `ollama serve` would otherwise fail with

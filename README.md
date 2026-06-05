@@ -233,10 +233,12 @@ lives once in the common file. The wrapper:
 
 > **KV-cache quantization (`OLLAMA_KV_CACHE_TYPE`):** for long contexts the KV
 > cache dominates VRAM. Setting `OLLAMA_KV_CACHE_TYPE=q8_0` (or `q4_0`) shrinks it
-> at a small quality cost; the default is `f16`. In Ollama this **requires
-> `OLLAMA_FLASH_ATTENTION=1`** to take effect. The wrapper sets
-> `OLLAMA_FLASH_ATTENTION=1` and `OLLAMA_KV_CACHE_TYPE=f16` (lossless default);
-> override `OLLAMA_KV_CACHE_TYPE=q8_0` (or `q4_0`) to quantize. Both are
+> at a small quality cost; Ollama's own default is `f16`. In Ollama this
+> **requires `OLLAMA_FLASH_ATTENTION=1`** to take effect. The wrapper sets
+> `OLLAMA_FLASH_ATTENTION=1` and defaults `OLLAMA_KV_CACHE_TYPE=q8_0` (≈half the
+> KV VRAM of f16 with quality loss below the noise floor, which is what lets
+> 30B+ models hold the 64K context in 24GB); override
+> `OLLAMA_KV_CACHE_TYPE=f16` for lossless, or `q4_0` to quantize harder. Both are
 > server-launch env vars (set them alongside the daemon, not on an
 > already-running one). Verified present in the local Ollama (0.30.2).
 
