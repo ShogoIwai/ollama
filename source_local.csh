@@ -62,6 +62,9 @@ if (! $?LOCALLLM_CODEX_PROFILE) then
         case gemma4:26b*:
             setenv LOCALLLM_CODEX_PROFILE "ollama-gemma-26b"
             breaksw
+        case qwen3.6:*:
+            setenv LOCALLLM_CODEX_PROFILE "ollama-qwen36"
+            breaksw
         default:
             setenv LOCALLLM_CODEX_PROFILE "ollama-local"
             breaksw
