@@ -6,7 +6,7 @@
 # readiness wait, the lazy pull, and keeping the daemon in the foreground.
 #
 # Required variable (set by the launcher before sourcing):
-#   MODEL   the Ollama tag to ensure is pulled (e.g. gemma4:26b, gemma4:12b)
+#   MODEL   the Ollama tag to ensure is pulled (e.g. gemma4:26b)
 set -eu
 
 : "${MODEL:?MODEL must be set before sourcing _ollama_serve_common.sh}"
