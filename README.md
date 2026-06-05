@@ -4,7 +4,7 @@
 built on **Ollama**. Two local models are supported interchangeably —
 **`qwen3-coder`** (default, non-thinking) and **`gemma4:26b`** (thinking-capable
 MoE) — each with its own thin launcher (`start_ollama_qwen3_coder.sh` /
-`start_ollama_gemma4.sh`) sharing one core (`_ollama_serve_common.sh`). The MCP
+`start_ollama_gemma4_26b.sh`) sharing one core (`_ollama_serve_common.sh`). The MCP
 server auto-detects whichever is loaded; the harness direct-connect picks the
 model by the `LOCALLLM_MODEL` env var (see
 [cloud / local static switching](#cloud--local-static-switching)). It replaces
@@ -32,7 +32,8 @@ Two things differ from the vLLM setup:
 | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `up_version.csh`              | Reinstall Ollama to the latest release, stop/disable the systemd unit, and print the version (manual update helper)                                      |
 | `start_ollama_qwen3_coder.sh` | Thin launcher for `qwen3-coder`: sets `MODEL` and sources the shared core                                                                            |
-| `start_ollama_gemma4.sh`      | Thin launcher for `gemma4:26b` (override `MODEL=` for another size/quant)                                                                            |
+| `start_ollama_gemma4_26b.sh`      | Thin launcher for `gemma4:26b` (override `MODEL=` for another size/quant)                                                                            |
+| `start_ollama_gemma4_12b.sh`  | Thin launcher for `gemma4:12b` (lighter/faster dense Gemma; ~7-8GB, full-GPU on 24GB)                                                              |
 | `start_ollama_gemma3_wsl.sh`  | Thin launcher for `gemma3:4b` on a WSL / GPU-less, low-memory host (CPU inference); caps context low (see [WSL / low-memory (CPU)](#wsl--low-memory-cpu)) |
 | `_ollama_serve_common.sh`     | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in `~/.ollama_active_model`                 |
 | `source_local` / `.csh`     | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local                                                                     |
@@ -74,8 +75,9 @@ ollama run qwen3-coder     # optional REPL smoke test
 
 ```bash
 ./start_ollama_qwen3_coder.sh        # qwen3-coder (default)
-./start_ollama_gemma4.sh             # gemma4:26b  (override MODEL= for another size)
-#   MODEL=gemma4:31b ./start_ollama_gemma4.sh
+./start_ollama_gemma4_26b.sh         # gemma4:26b  (override MODEL= for another size)
+#   MODEL=gemma4:31b ./start_ollama_gemma4_26b.sh
+./start_ollama_gemma4_12b.sh         # gemma4:12b  (lighter/faster dense Gemma)
 ./start_ollama_gemma3_wsl.sh         # gemma3:4b on WSL / GPU-less CPU host (low ctx)
 ```
 
@@ -158,7 +160,7 @@ the only hard rule; usable context above it depends on weight size and offload:
 | GPU VRAM | Practical context        | Notes                                                                      |
 | -------- | ------------------------ | -------------------------------------------------------------------------- |
 | < 24 GB  | 4K (auto), raise w/ care | Ollama auto-limits to 4K; larger needs explicit override + RAM spill       |
-| 24 GB    | up to ~64K               | **Measured**: RTX 3090, qwen3-coder @ 64000 ran 7%/93% CPU/GPU split |
+| 24 GB    | up to ~64K               | **Measured**: RTX 3090, qwen3-coder @ 64000 ran 7%/93% CPU/GPU split; gemma4:12b @ 64000 ran **100% GPU, 9.2 GB** |
 | 48 GB+   | 256K+ (estimate)         | Report-derived,**not measured** here; confirm with `ollama ps`     |
 
 > The 24 GB row is measured on this host; other rows are estimates to be confirmed
@@ -255,16 +257,19 @@ no manual edits. If the marker is missing it falls back to `qwen3-coder`. An
 explicit `setenv`/`export LOCALLLM_MODEL` before sourcing always wins.
 
 `LOCALLLM_CODEX_PROFILE`, when unset, is **derived from `LOCALLLM_MODEL`** via a
-`switch` in `source_local.csh`: `gemma4*` ⇒ `ollama-gemma`, everything else ⇒
-`ollama-local`. Add one `case` + a matching overlay file per new local model.
+`switch` in `source_local.csh`: `gemma4:12b*` ⇒ `ollama-gemma-12b`, `gemma4:26b*`
+⇒ `ollama-gemma-26b`, everything else ⇒ `ollama-local`. (Each model gets its own
+explicit case — there is no generic `gemma4*` fallback, so an unlisted variant
+defaults to `ollama-local`.) Add one `case` + a matching overlay file per new
+local model.
 (`ollama ps` is *not* used for detection: it only lists models already loaded
 into memory on demand, so it is empty right after `ollama serve` starts.)
 
 ```bash
 # auto: start a model, then just source — both clients follow it
-./start_ollama_gemma4.sh                   # writes marker = gemma4:26b
+./start_ollama_gemma4_26b.sh               # writes marker = gemma4:26b
 source ollama/source_local                 # tcsh: source ollama/source_local.csh
-#   → claude --model gemma4:26b, codex --profile ollama-gemma
+#   → claude --model gemma4:26b, codex --profile ollama-gemma-26b
 
 # manual override still works (wins over the marker)
 export LOCALLLM_MODEL=gemma4:26b           # tcsh: setenv LOCALLLM_MODEL gemma4:26b
@@ -289,6 +294,13 @@ recursively.)
 > auto-detects the loaded model on its own. Make sure the model you point the
 > alias at is actually the one the running launcher serves.
 
+> **Verified (gemma4:12b, direct connect):** unlike `gemma3:4b` on WSL (which
+> can only go through the MCP path — see [WSL / low-memory (CPU)](#wsl--low-memory-cpu)),
+> `gemma4:12b` works as a **direct-connect agentic backend for both Claude Code
+> and Codex** on the 24 GB host: `./start_ollama_gemma4_12b.sh` then
+> `source ollama/source_local` (claude → `--model gemma4:12b`, codex →
+> `--profile ollama-gemma-12b`). Both clients drove tool calls correctly.
+
 ### Claude Code
 
 ```bash
@@ -309,11 +321,12 @@ claude                             # alias cleared → cloud default
 `source_cloud` clears it so `codex` is cloud again. You can still invoke either
 explicitly (`codex --profile ollama-local` / `codex`) regardless of which file is
 sourced. By default `LOCALLLM_CODEX_PROFILE` is **auto-derived from the detected
-`LOCALLLM_MODEL`** (see the auto-detection note above): `gemma4*` ⇒ `ollama-gemma`,
-otherwise ⇒ `ollama-local`. To force a specific profile, set
+`LOCALLLM_MODEL`** (see the auto-detection note above): `gemma4:12b*` ⇒
+`ollama-gemma-12b`, `gemma4:26b*` ⇒ `ollama-gemma-26b`, otherwise ⇒
+`ollama-local` (one explicit case per model). To force a specific profile, set
 `LOCALLLM_CODEX_PROFILE` before sourcing — Codex picks the model per profile
 (overlay file), not per env var, so each profile needs its own overlay file
-(e.g. `ollama-gemma` ⇒ `~/.codex/ollama-gemma.config.toml` with
+(e.g. `ollama-gemma-26b` ⇒ `~/.codex/ollama-gemma-26b.config.toml` with
 `model = "gemma4:26b"`).
 
 The profile mechanism is independent of the env files. Since Codex
@@ -341,14 +354,21 @@ Add one overlay file per local model you want a `codex --profile` for; they all
 reuse the single shared `ollama-local` provider:
 
 ```toml
-# ~/.codex/ollama-gemma.config.toml
+# ~/.codex/ollama-gemma-26b.config.toml
 model = "gemma4:26b"
+model_provider = "ollama-local"
+```
+
+```toml
+# ~/.codex/ollama-gemma-12b.config.toml
+model = "gemma4:12b"
 model_provider = "ollama-local"
 ```
 
 ```bash
 codex --profile ollama-local       # local qwen3-coder (loads ollama-local.config.toml)
-codex --profile ollama-gemma       # local gemma4:26b  (loads ollama-gemma.config.toml)
+codex --profile ollama-gemma-26b   # local gemma4:26b  (loads ollama-gemma-26b.config.toml)
+codex --profile ollama-gemma-12b   # local gemma4:12b  (loads ollama-gemma-12b.config.toml)
 codex                              # cloud (default profile)
 ```
 

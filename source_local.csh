@@ -37,8 +37,11 @@ endif
 # model unless explicitly set. Add a case + overlay file per new local model.
 if (! $?LOCALLLM_CODEX_PROFILE) then
     switch ("$LOCALLLM_MODEL")
-        case gemma4*:
-            setenv LOCALLLM_CODEX_PROFILE "ollama-gemma"
+        case gemma4:12b*:
+            setenv LOCALLLM_CODEX_PROFILE "ollama-gemma-12b"
+            breaksw
+        case gemma4:26b*:
+            setenv LOCALLLM_CODEX_PROFILE "ollama-gemma-26b"
             breaksw
         default:
             setenv LOCALLLM_CODEX_PROFILE "ollama-local"

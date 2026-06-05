@@ -37,8 +37,9 @@ fi
 # model unless explicitly set. Add a case + overlay file per new local model.
 if [ -z "${LOCALLLM_CODEX_PROFILE:-}" ]; then
     case "${LOCALLLM_MODEL}" in
-        gemma4*) LOCALLLM_CODEX_PROFILE="ollama-gemma" ;;
-        *)       LOCALLLM_CODEX_PROFILE="ollama-local" ;;
+        gemma4:12b*) LOCALLLM_CODEX_PROFILE="ollama-gemma-12b" ;;
+        gemma4:26b*) LOCALLLM_CODEX_PROFILE="ollama-gemma-26b" ;;
+        *)           LOCALLLM_CODEX_PROFILE="ollama-local" ;;
     esac
 fi
 export LOCALLLM_MODEL LOCALLLM_CODEX_PROFILE
