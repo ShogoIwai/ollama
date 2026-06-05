@@ -149,6 +149,70 @@ listed builds were actually run here.
 
 ---
 
+## Removing a model (reclaim disk)
+
+GGUF weights are large (a single 30B+ Q4 build is ~20–24 GB) and accumulate in
+the model store, so prune tags you no longer serve. Deletion is the inverse of
+[Adding a new LLM](#adding-a-new-llm): remove the on-disk weights, then the
+launcher/profile scaffolding that pointed at them.
+
+> **Agent-runnable (unlike adding a model).** Removal does not displace the loaded
+> model or trigger a large download, so — unlike pulling (step 2) and the daemon
+> swap (step 4) in *Adding a new LLM* — the agent may run `ollama rm` and the
+> scaffolding cleanup directly. The **one** guard: never `rm` a tag the running
+> daemon still has loaded (`ollama ps`); stop/switch the daemon off it first.
+
+### 1. Check what is on disk and what is loaded
+
+```bash
+ollama list                               # all pulled tags + SIZE on disk
+ollama ps                                 # what is loaded in memory right now
+du -sh ~/.ollama/models                   # total store size (or /usr/share/ollama/.ollama/models under systemd)
+```
+
+Do **not** remove a tag that `ollama ps` shows loaded — stop/switch the daemon
+off it first (see [Start the server](#2-start-the-server): only one daemon binds
+`:11434`).
+
+### 2. Remove the weights
+
+```bash
+ollama rm <tag>                           # deletes the GGUF blobs for that tag
+ollama list                               # confirm it is gone and SIZE dropped
+```
+
+`ollama rm` is reference-counted on the underlying blobs: shared layers are kept
+until the last tag referencing them is removed, so removing one of several
+related quants frees only its unshared layers. If a copy made with `ollama cp`
+(e.g. the `claude-3-5-sonnet` validation-bypass alias in
+[Claude Code](#claude-code)) still points at the blobs, remove that copy too.
+
+### 3. Remove the scaffolding
+
+If the model had a dedicated launcher / Codex profile (steps 3 and 7 of *Adding a
+new LLM* are the only ones that leave anything in the tree), delete those so the
+README and switch logic stay truthful:
+
+- delete the launcher `start_ollama_<name>.sh`;
+- remove its `case`/`switch` arm from **both** `source_local` and
+  `source_local.csh`, and delete the overlay `~/.codex/<profile>.config.toml`;
+- drop its row from [Models and memory requirements](#models-and-memory-requirements),
+  [Directory Contents](#directory-contents), and the
+  [Quick Start](#2-start-the-server) launcher list.
+
+Leaving a launcher whose tag has been `rm`'d is harmless (the common core
+lazy-pulls it back on next start), but it re-downloads the weights you just
+freed — so remove the launcher unless you intend to re-pull.
+
+### 4. (Optional) clear the active-model marker
+
+If you removed the tag recorded in `~/.ollama_active_model`, `source_local` would
+still resolve the alias to a now-absent model until the next launcher run
+rewrites the marker. Start another launcher (which overwrites it) or delete the
+marker to fall back to the `qwen3-coder` default.
+
+---
+
 ## Directory Contents
 
 | File                            | Role                                                                                                                                                     |
