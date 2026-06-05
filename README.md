@@ -372,15 +372,24 @@ the only hard rule; usable context above it depends on weight size and offload:
 > The 24 GB row is measured on this host; other rows are estimates to be confirmed
 > per environment via the `ollama ps` `CONTEXT` column and CPU/GPU split.
 
-**Per-model measured values (RTX 3090, 24 GB).** Measured at `OLLAMA_CONTEXT_LENGTH=64000`
-with `OLLAMA_KV_CACHE_TYPE=q8_0`; SIZE / processor split from `ollama ps`, throughput
-from `/api/generate` (`eval_count` ÷ `eval_duration`):
+**Per-model measured values (RTX 3090, 24 GB).** `OLLAMA_KV_CACHE_TYPE=q8_0`; SIZE /
+processor split from `ollama ps`, throughput from `/api/generate`
+(`eval_count` ÷ `eval_duration`). `gemma4:12b` is measured at its full native context
+(262144); the larger builds at 64000 (they lack the VRAM headroom to go higher):
 
 | Model                            | Context | Processor | VRAM (SIZE) | Throughput  |
 | -------------------------------- | ------- | --------- | ----------- | ----------- |
-| `gemma4:12b`                     | 64000   | 100% GPU  | 9.2 GB      | ~60 tok/s   |
+| `gemma4:12b`                     | 262144  | 100% GPU  | 8.6 GB      | ~60 tok/s   |
 | `gemma4:26b`                     | 64000   | 100% GPU  | 17 GB       | ~100 tok/s  |
 | `qwen3.6:35b-a3b-mtp-q4_K_M`     | 64000   | 100% GPU  | 22 GB       | ~144 tok/s  |
+
+> All three models share a **262144 (256K)** native context, but only `gemma4:12b`
+> can use it on a 24 GB GPU: at 256K it stays 100% GPU (~11 GB total VRAM, ~60 tok/s),
+> so `start_ollama_gemma4_12b.sh` defaults `OLLAMA_CONTEXT_LENGTH=262144`. The 26b
+> (17 GB @ 64K) and qwen35b (22 GB @ 64K) are already near the 24 GB ceiling, so
+> raising *their* context would spill the KV cache to CPU and tank throughput —
+> they stay at the shared 64000 default. (SIZE in `ollama ps` does not grow linearly
+> with the limit: Ollama allocates KV lazily, so VRAM only fills as context is used.)
 
 ---
 
