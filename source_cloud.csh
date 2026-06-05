@@ -11,7 +11,7 @@ unsetenv ANTHROPIC_API_KEY
 unsetenv OLLAMA_HOST
 if ($?LOCALLLM_MODEL) unsetenv LOCALLLM_MODEL
 if ($?LOCALLLM_CODEX_PROFILE) unsetenv LOCALLLM_CODEX_PROFILE
-
+if ($?_LOCALLLM_SOURCED) unsetenv _LOCALLLM_SOURCED   # sentinel cleared: no longer in LOCAL mode
 # Drop the local-mode aliases so `claude` / `codex` revert to their cloud defaults.
 unalias claude
 unalias codex

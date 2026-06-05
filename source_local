@@ -6,6 +6,19 @@
 # NOTE: This file only touches ANTHROPIC_* (Claude Code). It deliberately does
 # NOT export any OPENAI_* var: Codex's cloud OpenAI client reads those too, so
 # exporting them here would silently redirect Codex to the local server.
+
+# --- Auto-reset stale LOCAL state so re-sourcing tracks a freshly-started model ---
+# Switching models used to need `source_cloud` then `source_local`: the previous
+# source_local left LOCALLLM_MODEL set, and that leftover beats the ~/.ollama_active_model
+# marker, so re-sourcing kept the old model. We mark LOCAL mode with the sentinel
+# _LOCALLLM_SOURCED; if it is already set we are re-sourcing over a prior LOCAL
+# session, so call source_cloud first to clear LOCALLLM_MODEL/aliases and let the
+# marker win. (An explicit `export LOCALLLM_MODEL=...` from a cloud shell carries no
+# sentinel, so it is NOT reset and still wins — the documented override is preserved.)
+if [ -n "${_LOCALLLM_SOURCED:-}" ]; then
+    source "$(dirname "${BASH_SOURCE[0]}")/source_cloud" >/dev/null
+fi
+
 export OLLAMA_HOST="http://localhost:11434"
 
 # --- Claude Code (Anthropic-compatible /v1/messages, Ollama v0.14.0+) ---
@@ -43,6 +56,7 @@ if [ -z "${LOCALLLM_CODEX_PROFILE:-}" ]; then
     esac
 fi
 export LOCALLLM_MODEL LOCALLLM_CODEX_PROFILE
+export _LOCALLLM_SOURCED=1   # sentinel: in LOCAL mode (see auto-reset block above)
 
 # --- Local-mode aliases (cleared by source_cloud) ---
 # claude: env already points at Ollama; alias just pins the model name.

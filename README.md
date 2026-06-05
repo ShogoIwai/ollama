@@ -26,6 +26,122 @@ Two things differ from the vLLM setup:
 
 ---
 
+## Adding a new LLM
+
+Standard procedure for evaluating and adopting a new local model. Each step is
+cheap to undo, so run them in order and stop at step 6 if the model is not worth
+keeping — only step 3 and step 7 leave anything in the tree.
+
+### 1. Find the Ollama tag
+
+Confirm the model exists in the Ollama registry and pick a quantization that fits
+24 GB. Estimate weight memory first with the sizing formula in
+[Models and memory requirements](#models-and-memory-requirements)
+(`Params(B) × bits / 8 × 1.25`), then verify the exact tag/quant is published:
+
+```bash
+ollama show <tag>                         # prints params, quant, context if pullable
+#   browse tags at https://ollama.com/library/<model>
+```
+
+Note the precise tag (e.g. `qwen3-coder:30b`, `deepseek-r1:32b`,
+`mistral-small:24b`). A tag that does not resolve here will fail at step 2 — do
+not guess; the registry is authoritative.
+
+### 2. Pull the tag
+
+```bash
+ollama pull <tag>
+ollama show <tag>                         # re-confirm quant/context after download
+```
+
+Watch disk: GGUF weights land in `~/.ollama/models` (or
+`/usr/share/ollama/.ollama/models` under systemd — see the systemd note in
+[Quick Start](#2-start-the-server)).
+
+### 3. Create a launcher script for the tag
+
+Copy the closest existing launcher and change only the `MODEL` tag. Every launcher
+is a 2-line thin wrapper over `_ollama_serve_common.sh`; nothing else needs to
+change.
+
+```bash
+cp start_ollama_qwen3_coder.sh start_ollama_<name>.sh
+# edit: set MODEL="<tag>"  (override OLLAMA_CONTEXT_LENGTH here only if needed)
+chmod +x start_ollama_<name>.sh
+```
+
+If you want a `claude --model` / `codex --profile` shortcut for it, also add:
+
+- a `case`/`switch` arm in **both** `source_local` and `source_local.csh`
+  mapping the tag → a Codex profile name (see
+  [cloud / local static switching](#cloud--local-static-switching)), and
+- the matching overlay file `~/.codex/<profile>.config.toml` with
+  `model = "<tag>"` and `model_provider = "ollama-local"` (see [Codex](#codex)).
+
+This is optional for a first smoke test — auto-detection from the marker already
+makes `source_local` track the launched tag, and the MCP path needs no profile.
+
+### 4. Restart the daemon on the new model
+
+Only one daemon binds `:11434`, so stop the running launcher and start the new
+one. The launcher records the tag in `~/.ollama_active_model`, which the MCP
+server and `source_local` then auto-detect.
+
+```bash
+# stop the currently running launcher (Ctrl-C in its foreground, or kill the serve)
+./start_ollama_<name>.sh
+ollama ps                                 # confirm the model loaded; check CONTEXT + CPU/GPU split
+```
+
+A 100% GPU split with VRAM headroom is the goal; a large CPU share means the
+weights+KV cache overflowed 24 GB — drop the quant or `OLLAMA_CONTEXT_LENGTH`.
+
+### 5. Verify it works
+
+Two integration paths — test whichever you intend to use:
+
+- **MCP path** (always safe, text-in/text-out):
+  ```bash
+  # in Claude Code / Codex with the localllm MCP server registered:
+  #   call ask_local("…")  /  ask_local_code("…")  and confirm a sane reply
+  ```
+- **Direct-connect agentic backend** (only if the model reports `tools`
+  capability and emits structured tool calls):
+  ```bash
+  source ollama/source_local            # tcsh: source ollama/source_local.csh
+  claude                                 # drive a small edit; confirm it reaches disk
+  codex                                  # confirm a tool call executes
+  ```
+
+A model that emits tool calls as plain-text JSON in `content` (e.g. small Gemma)
+is **MCP-only** — see the tool-calling caveat in
+[WSL / low-memory (CPU)](#use-the-mcp-path-not-direct-connect). Note speed
+(`tok/s`), resident VRAM, and whether tool calls land.
+
+### 6. Adopt or drop
+
+Decide against the measured numbers from step 5: does it fit 24 GB with usable
+context, run fast enough, and (for direct connect) drive tool calls correctly? If
+**no**, drop it — `ollama rm <tag>` reclaims the disk and delete the launcher;
+nothing else was committed. If **yes**, continue to step 7.
+
+### 7. Document it in the README
+
+Record the adopted model so the next person does not re-derive it:
+
+- add a row to [Models and memory requirements](#models-and-memory-requirements)
+  (or the WSL table) with the **measured** VRAM / context / `tok/s`, not estimates;
+- add the launcher to the [Directory Contents](#directory-contents) table and the
+  [Quick Start](#2-start-the-server) launcher list;
+- if you added a Codex profile in step 3, document the overlay file under
+  [Codex](#codex).
+
+Mark estimated vs measured numbers explicitly — the table's authority is that its
+listed builds were actually run here.
+
+---
+
 ## Directory Contents
 
 | File                            | Role                                                                                                                                                     |
