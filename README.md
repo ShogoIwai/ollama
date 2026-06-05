@@ -218,9 +218,9 @@ marker to fall back to the `gemma4:26b` default.
 | File                            | Role                                                                                                                                                     |
 | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `up_version.csh`              | Reinstall Ollama to the latest release, stop/disable the systemd unit, and print the version (manual update helper)                                      |
-| `start_ollama_gemma4_26b.sh`      | Thin launcher for `gemma4:26b` (default; override `MODEL=` for another size/quant)                                                                   |
-| `start_ollama_gemma4_12b.sh`  | Thin launcher for `gemma4:12b` (lighter/faster dense Gemma; ~7-8GB, full-GPU on 24GB)                                                              |
-| `start_ollama_qwen36.sh`      | Thin launcher for `qwen3.6:35b-a3b-mtp-q4_K_M` (Qwen3.6-35B-A3B MoE, ~3B active, thinking-capable; 22GB, measured **100% GPU @ 64K, ~144 tok/s** on 24GB) |
+| `start_ollama_gemma4_26b.sh`      | Thin launcher for `gemma4:26b` (default; thinking-capable MoE — few active params, so faster than the dense 12b despite more total weights; override `MODEL=` for another size/quant) |
+| `start_ollama_gemma4_12b.sh`  | Thin launcher for `gemma4:12b` (dense Gemma — all params active every token; lighter VRAM but slower per token than the 26b MoE)                                                              |
+| `start_ollama_qwen36.sh`      | Thin launcher for `qwen3.6:35b-a3b-mtp-q4_K_M` (Qwen3.6-35B-A3B MoE, ~3B active, thinking-capable; highest throughput of the three) |
 | `start_ollama_gemma3_wsl.sh`  | Thin launcher for `gemma3:4b` on a WSL / GPU-less, low-memory host (CPU inference); caps context low (see [WSL / low-memory (CPU)](#wsl--low-memory-cpu)) |
 | `_ollama_serve_common.sh`     | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in `~/.ollama_active_model`                 |
 | `source_local` / `.csh`     | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local                                                                     |
@@ -366,11 +366,21 @@ the only hard rule; usable context above it depends on weight size and offload:
 | GPU VRAM | Practical context        | Notes                                                                      |
 | -------- | ------------------------ | -------------------------------------------------------------------------- |
 | < 24 GB  | 4K (auto), raise w/ care | Ollama auto-limits to 4K; larger needs explicit override + RAM spill       |
-| 24 GB    | up to ~64K               | **Measured**: RTX 3090, gemma4:12b @ 64000 ran **100% GPU, 9.2 GB**; qwen3.6:35b-a3b-mtp-q4_K_M @ 64000 ran **100% GPU, 22 GB, ~144 tok/s** (q8_0 KV cache) |
+| 24 GB    | up to ~64K               | **Measured** on RTX 3090 — per-model detail in the table below (all 100% GPU @ 64000, q8_0 KV cache) |
 | 48 GB+   | 256K+ (estimate)         | Report-derived,**not measured** here; confirm with `ollama ps`     |
 
 > The 24 GB row is measured on this host; other rows are estimates to be confirmed
 > per environment via the `ollama ps` `CONTEXT` column and CPU/GPU split.
+
+**Per-model measured values (RTX 3090, 24 GB).** Measured at `OLLAMA_CONTEXT_LENGTH=64000`
+with `OLLAMA_KV_CACHE_TYPE=q8_0`; SIZE / processor split from `ollama ps`, throughput
+from `/api/generate` (`eval_count` ÷ `eval_duration`):
+
+| Model                            | Context | Processor | VRAM (SIZE) | Throughput  |
+| -------------------------------- | ------- | --------- | ----------- | ----------- |
+| `gemma4:12b`                     | 64000   | 100% GPU  | 9.2 GB      | ~60 tok/s   |
+| `gemma4:26b`                     | 64000   | 100% GPU  | 17 GB       | ~100 tok/s  |
+| `qwen3.6:35b-a3b-mtp-q4_K_M`     | 64000   | 100% GPU  | 22 GB       | ~144 tok/s  |
 
 ---
 
