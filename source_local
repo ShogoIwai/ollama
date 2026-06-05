@@ -52,7 +52,7 @@ if [ -z "${LOCALLLM_CODEX_PROFILE:-}" ]; then
     case "${LOCALLLM_MODEL}" in
         gemma4:12b*) LOCALLLM_CODEX_PROFILE="ollama-gemma-12b" ;;
         gemma4:26b*) LOCALLLM_CODEX_PROFILE="ollama-gemma-26b" ;;
-        qwen3.6:*)   LOCALLLM_CODEX_PROFILE="ollama-qwen36" ;;
+        qwen3.6:*)   LOCALLLM_CODEX_PROFILE="ollama-qwen36-35b" ;;
         *)           LOCALLLM_CODEX_PROFILE="ollama-local" ;;
     esac
 fi

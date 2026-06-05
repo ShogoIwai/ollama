@@ -218,9 +218,9 @@ marker to fall back to the `gemma4:26b` default.
 | File                            | Role                                                                                                                                                     |
 | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `up_version.csh`              | Reinstall Ollama to the latest release, stop/disable the systemd unit, and print the version (manual update helper)                                      |
-| `start_ollama_gemma4_26b.sh`      | Thin launcher for `gemma4:26b` (default; thinking-capable MoE — few active params, so faster than the dense 12b despite more total weights; override `MODEL=` for another size/quant) |
 | `start_ollama_gemma4_12b.sh`  | Thin launcher for `gemma4:12b` (dense Gemma — all params active every token; lighter VRAM but slower per token than the 26b MoE)                                                              |
-| `start_ollama_qwen36.sh`      | Thin launcher for `qwen3.6:35b-a3b-mtp-q4_K_M` (Qwen3.6-35B-A3B MoE, ~3B active, thinking-capable; highest throughput of the three) |
+| `start_ollama_gemma4_26b.sh`      | Thin launcher for `gemma4:26b` (default; thinking-capable MoE — few active params, so faster than the dense 12b despite more total weights; override `MODEL=` for another size/quant) |
+| `start_ollama_qwen36_35b.sh`  | Thin launcher for `qwen3.6:35b-a3b-mtp-q4_K_M` (Qwen3.6-35B-A3B MoE, ~3B active, thinking-capable; highest throughput of the three) |
 | `start_ollama_gemma3_wsl.sh`  | Thin launcher for `gemma3:4b` on a WSL / GPU-less, low-memory host (CPU inference); caps context low (see [WSL / low-memory (CPU)](#wsl--low-memory-cpu)) |
 | `_ollama_serve_common.sh`     | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in `~/.ollama_active_model`                 |
 | `source_local` / `.csh`     | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local                                                                     |
@@ -264,7 +264,7 @@ ollama run gemma4:26b      # optional REPL smoke test
 ./start_ollama_gemma4_26b.sh         # gemma4:26b  (default; override MODEL= for another size)
 #   MODEL=gemma4:31b ./start_ollama_gemma4_26b.sh
 ./start_ollama_gemma4_12b.sh         # gemma4:12b  (lighter/faster dense Gemma)
-./start_ollama_qwen36.sh             # qwen3.6:35b-a3b-mtp-q4_K_M (override MODEL=qwen3.6:35b for non-MTP)
+./start_ollama_qwen36_35b.sh         # qwen3.6:35b-a3b-mtp-q4_K_M (override MODEL=qwen3.6:35b for non-MTP)
 ./start_ollama_gemma3_wsl.sh         # gemma3:4b on WSL / GPU-less CPU host (low ctx)
 ```
 
@@ -348,6 +348,14 @@ the default `gemma4:26b`.
 it is a candidate **direct-connect** agentic backend (`tools`) and the MCP path
 handles its `thinking` with `think:false` as usual — a full agentic tool-driving
 loop has not yet been exercised end-to-end here.
+
+> **Evaluated and dropped: Qwen3.6-27B (`qwen3.6:27b-mtp-q4_K_M`).** The **dense**
+> 27B sibling (`architecture qwen35`, 27.3B params, no `a3b` MoE sparsity) was
+> measured here at **100% GPU, 17 GB, 64000 context, ~38 tok/s** — ~3.7× slower
+> than the 35b-a3b (it runs all 27.3B per token vs the MoE's ~3B) while offering
+> less capacity and only marginally lower VRAM. The 35b-a3b dominates it on speed
+> and capacity at once, so the 27b was **not adopted** and its weights/scaffolding
+> were removed. Re-pull only if a specifically dense-27B behaviour is needed.
 
 **Sizing a new model (rough estimate).** Before pulling, estimate weight memory as:
 
@@ -483,7 +491,7 @@ explicit `setenv`/`export LOCALLLM_MODEL` before sourcing always wins.
 
 `LOCALLLM_CODEX_PROFILE`, when unset, is **derived from `LOCALLLM_MODEL`** via a
 `switch` in `source_local.csh`: `gemma4:12b*` ⇒ `ollama-gemma-12b`, `gemma4:26b*`
-⇒ `ollama-gemma-26b`, `qwen3.6:*` ⇒ `ollama-qwen36`, everything else ⇒
+⇒ `ollama-gemma-26b`, `qwen3.6:*` ⇒ `ollama-qwen36-35b`, everything else ⇒
 `ollama-local`. (Each model gets its own explicit case — there is no generic
 `gemma4*` fallback, so an unlisted variant defaults to `ollama-local`.) Add one
 `case` + a matching overlay file per new local model.
@@ -548,7 +556,8 @@ explicitly (`codex --profile ollama-local` / `codex`) regardless of which file i
 sourced. By default `LOCALLLM_CODEX_PROFILE` is **auto-derived from the detected
 `LOCALLLM_MODEL`** (see the auto-detection note above): `gemma4:12b*` ⇒
 `ollama-gemma-12b`, `gemma4:26b*` ⇒ `ollama-gemma-26b`, `qwen3.6:*` ⇒
-`ollama-qwen36`, otherwise ⇒ `ollama-local` (one explicit case per model). To force a specific profile, set
+`ollama-qwen36-35b`, otherwise ⇒ `ollama-local` (one
+explicit case per model). To force a specific profile, set
 `LOCALLLM_CODEX_PROFILE` before sourcing — Codex picks the model per profile
 (overlay file), not per env var, so each profile needs its own overlay file
 (e.g. `ollama-gemma-26b` ⇒ `~/.codex/ollama-gemma-26b.config.toml` with
@@ -591,7 +600,7 @@ model_provider = "ollama-local"
 ```
 
 ```toml
-# ~/.codex/ollama-qwen36.config.toml
+# ~/.codex/ollama-qwen36-35b.config.toml
 model = "qwen3.6:35b-a3b-mtp-q4_K_M"
 model_provider = "ollama-local"
 ```
@@ -600,7 +609,7 @@ model_provider = "ollama-local"
 codex --profile ollama-local       # local gemma4:26b (loads ollama-local.config.toml)
 codex --profile ollama-gemma-26b   # local gemma4:26b  (loads ollama-gemma-26b.config.toml)
 codex --profile ollama-gemma-12b   # local gemma4:12b  (loads ollama-gemma-12b.config.toml)
-codex --profile ollama-qwen36      # local qwen3.6:35b-a3b (loads ollama-qwen36.config.toml)
+codex --profile ollama-qwen36-35b  # local qwen3.6:35b-a3b (loads ollama-qwen36-35b.config.toml)
 codex                              # cloud (default profile)
 ```
 

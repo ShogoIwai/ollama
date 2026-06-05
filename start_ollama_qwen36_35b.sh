@@ -5,7 +5,7 @@
 # ~144 tok/s generation, because the wrapper's q8_0 KV cache (+ flash attention)
 # keeps the full context in VRAM alongside the weights. Override MODEL for the
 # non-MTP build, e.g.
-#   MODEL=qwen3.6:35b ./start_ollama_qwen36.sh
+#   MODEL=qwen3.6:35b ./start_ollama_qwen36_35b.sh
 #
 # Thin launcher: sets the model tag and delegates to the shared core in
 # _ollama_serve_common.sh (daemon start, readiness wait, lazy pull, foreground).
