@@ -1,5 +1,5 @@
 #!/usr/bin/csh
-npm instal -g @openai/codex@latest
+npm instal -g @anthropic-ai/claude-code@latest
 npm instal -g @openai/codex@latest
 
 curl -fsSL https://ollama.com/install.sh | sh
