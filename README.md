@@ -752,7 +752,46 @@ The hook matches `rg` processes by **session ID (SID)**. SID is inherited from t
 
 > **Best-effort:** this is not a perfect filter. `rg` processes started from the same terminal session that launched Claude Code share the same SID and would also be killed. In practice this trade-off is acceptable — intentional long-running `rg` searches in the same terminal as an active Claude Code session are rare.
 
-### Optional: route the stop-gate's review reasoning to the local model
+### Default: run the stop-gate review on the cloud model (accuracy check for closed local work)
+
+The point of running the Claude Code / Codex harness **directly on the local
+(open-weight) model** is token saving and keeping the work **closed** — nothing
+leaves the host (see [cloud / local static switching](#cloud--local-static-switching)).
+The `localllm` MCP server is *not* this path: it is a debugging / inspection tool
+only, so the real token-saving + closed-information win comes from the **direct
+harness execution** on the local model, not from delegating subtasks over MCP. The
+cost of that win is accuracy: a 26–35B local model reasons less reliably than the
+cloud model.
+
+**Policy: let the local model do the closed, cheap work, and let the *review* run
+on the cloud model.** The stop-review-gate is where that trade-off is rebalanced —
+the diff is handed to the high-accuracy cloud model for the ALLOW/BLOCK check. You
+**barter away closure for the review portion only** (just the diff is exposed to
+the cloud), in exchange for a trustworthy accuracy gate over work the open-weight
+local model produced. The bulk of the context — full repo, intermediate reasoning —
+never leaves the host; only the final diff is reviewed in the cloud.
+
+This is the **default** and needs no prompt edit: the stop-review-gate hook spawns
+Codex, and Codex shares no `OPENAI_*` env with the local switch (see
+[cloud / local static switching](#cloud--local-static-switching)), so the gate's
+review **already runs on the cloud** even while Claude Code itself runs on the local
+model. To be sure the gate is *not* accidentally pinned to local:
+
+- do **not** source / pass a Codex local profile (`codex --profile ollama-*`) in
+  the shell that launches the gate, and
+- do **not** add the local-routing block from the *Alternative* below to the prompt
+  template (if it is already there, remove it to restore the cloud review).
+
+```sh
+grep -n localllm ~/.codex/config.toml         # for the gate: absent / commented = cloud review
+ollama ps                                      # local model serves the worker, not the review gate
+```
+
+### Alternative: full closure — route the review to the local model too
+
+Use this **only** when the work is sensitive enough that **even the diff must not
+reach the cloud**. It gives up the cloud accuracy check above and runs the review
+reasoning on the local model as well, keeping everything closed.
 
 The Codex stop-time review gate runs from a **fixed prompt template** — not text
 Claude generates per turn. Only the `{{CLAUDE_RESPONSE_BLOCK}}` placeholder is
@@ -760,9 +799,9 @@ substituted at runtime with the previous Claude turn's output; the ALLOW/BLOCK
 contract and fast-path rules are hard-coded in the template, which
 `stop-review-gate-hook.mjs` / `codex-companion.mjs` read and run.
 
-If you want the gate to run its review reasoning on the **local model** (so Codex
-keeps file I/O and the final ALLOW/BLOCK decision), add this block to the prompt
-template:
+To force the gate's review reasoning onto the **local model** (so Codex keeps file
+I/O and the final ALLOW/BLOCK decision but nothing — not even the diff — leaves the
+host), add this block to the prompt template:
 
 ```text
 When reviewing actual code changes and local LLM MCP tools are available, run
@@ -793,3 +832,31 @@ grep -n localllm ~/.codex/config.toml
 ```
 
 After any Codex plugin reinstall, re-confirm the cache copy still carries the block.
+
+### Other TIPS options: cloud review/verification plugins
+
+The Codex stop-review-gate is **one** way to put a cloud-side accuracy check over
+closed local work; it is not the only one. The official marketplace
+(`claude-plugins-official`, already registered alongside `openai-codex`) ships
+several review plugins that fill the same role and are worth trialing as
+alternative or complementary TIPS options. They run on the cloud model, so they fit
+the same barter — closed, cheap local work; cloud-side accuracy check on the result.
+
+| Plugin (`@claude-plugins-official`) | Role                                                                  |
+| ----------------------------------- | --------------------------------------------------------------------- |
+| `code-review`                       | Multi-agent automated PR review with severity-classified findings     |
+| `pr-review-toolkit`                 | PR-review agents specialized by comments / tests / error handling     |
+| `coderabbit`                        | External validation through a specialized review model                |
+| `greptile` / `sourcegraph`          | AI codebase search to ground a review in cross-repo context           |
+
+Install and trial one with, e.g.:
+
+```bash
+claude plugin marketplace list                          # confirm claude-plugins-official is registered
+claude plugin install code-review@claude-plugins-official
+```
+
+These are **additive** to the stop-review-gate, not a replacement for the rg-cleanup
+`Stop` hook above (which is still needed regardless of who runs the review). Trial
+them, keep whichever gives the best review signal for this repo, and uninstall the
+rest (`claude plugin uninstall <name>`) to keep the surface small.
