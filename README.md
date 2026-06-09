@@ -722,9 +722,12 @@ a repository-wide `rg .`, which is exactly what spawns the lingering `rg` proces
 `cd` into the concrete target project (`<workspace-root>/<project>/<subdir>`, a
 real git working tree) before any `git` / diff operation, instead of the launch
 root. Inside a single repository `git` stays valid and the gate extracts a real
-diff rather than scanning the whole tree. This general rule is documented in both
-`~/.claude/CLAUDE.md` (Claude Code) and `~/.codex/AGENTS.md` (Codex). The `Stop`
-hook below remains as a belt-and-suspenders cleanup for any `rg` that still leaks.
+diff rather than scanning the whole tree. This general rule is documented in
+`~/.claude/CLAUDE.md` (Claude Code), `~/.codex/AGENTS.md` (Codex), and — so the
+gate's own Codex run also honours it — in the stop-review-gate prompt template
+itself via a `<git_scope_rules>` block (keep both prompt copies in sync; see the
+table in the *Alternative* section below). The `Stop` hook below remains as a
+belt-and-suspenders cleanup for any `rg` that still leaks.
 
 ### Fix: Claude Code `Stop` Hook
 
