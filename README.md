@@ -833,30 +833,23 @@ grep -n localllm ~/.codex/config.toml
 
 After any Codex plugin reinstall, re-confirm the cache copy still carries the block.
 
-### Other TIPS options: cloud review/verification plugins
+### Other TIPS options: cloud review without GitHub
 
 The Codex stop-review-gate is **one** way to put a cloud-side accuracy check over
-closed local work; it is not the only one. The official marketplace
-(`claude-plugins-official`, already registered alongside `openai-codex`) ships
-several review plugins that fill the same role and are worth trialing as
-alternative or complementary TIPS options. They run on the cloud model, so they fit
-the same barter — closed, cheap local work; cloud-side accuracy check on the result.
+closed local work; it is not the only one. **The constraint here is workflow:** this
+repo commits locally and pushes to an **on-prem remote — no GitHub PRs**. So
+marketplace review plugins built around `gh` / GitHub PRs (`code-review`,
+`pr-review-toolkit`, `coderabbit`, …) **do not fit** and were dropped after a trial
+(`code-review` needs `gh pr ...` and an open PR). Only **GitHub-independent**,
+local-diff-based options belong here:
 
-| Plugin (`@claude-plugins-official`) | Role                                                                  |
-| ----------------------------------- | --------------------------------------------------------------------- |
-| `code-review`                       | Multi-agent automated PR review with severity-classified findings     |
-| `pr-review-toolkit`                 | PR-review agents specialized by comments / tests / error handling     |
-| `coderabbit`                        | External validation through a specialized review model                |
-| `greptile` / `sourcegraph`          | AI codebase search to ground a review in cross-repo context           |
+| Option                          | GitHub | What it reviews                                                                          |
+| ------------------------------- | ------ | ---------------------------------------------------------------------------------------- |
+| **stop-review-gate** (above)    | none   | Each turn's edit diff → cloud Codex ALLOW/BLOCK. The default; always on, no extra install |
+| **`/code-review ultra`**        | none   | No-arg form bundles the local branch for a cloud multi-agent review; needs no GitHub remote (user-triggered, billed — cannot be launched by the agent) |
+| **direct `git diff` review**    | none   | Hand `git diff main...HEAD` (or any range) straight to the cloud model for an inline review — fully independent of any remote |
 
-Install and trial one with, e.g.:
-
-```bash
-claude plugin marketplace list                          # confirm claude-plugins-official is registered
-claude plugin install code-review@claude-plugins-official
-```
-
-These are **additive** to the stop-review-gate, not a replacement for the rg-cleanup
-`Stop` hook above (which is still needed regardless of who runs the review). Trial
-them, keep whichever gives the best review signal for this repo, and uninstall the
-rest (`claude plugin uninstall <name>`) to keep the surface small.
+All three run the review on the cloud model, so they keep the same barter — closed,
+cheap local work; cloud-side accuracy check on the result — **without** depending on
+GitHub. They are **additive** to the stop-review-gate, not a replacement for the
+rg-cleanup `Stop` hook above (still needed regardless of who runs the review).
