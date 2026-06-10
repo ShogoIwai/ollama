@@ -215,18 +215,18 @@ marker to fall back to the `gemma4:26b` default.
 
 ## Directory Contents
 
-| File                            | Role                                                                                                                                                     |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `up_version.csh`              | Reinstall Ollama to the latest release, stop/disable the systemd unit, and print the version (manual update helper)                                      |
-| `start_ollama_gemma4_26b.sh`      | Thin launcher for `gemma4:26b` (default; thinking-capable MoE — few active params; override `MODEL=` for another size/quant) |
-| `start_ollama_qwen36_35b.sh`  | Thin launcher for `qwen3.6:35b-a3b-mtp-q4_K_M` (Qwen3.6-35B-A3B MoE, ~3B active, thinking-capable; highest throughput of the three) |
-| `start_ollama_gemma3_wsl.sh`  | Thin launcher for `gemma3:4b` on a WSL / GPU-less, low-memory host (CPU inference); caps context low (see [WSL / low-memory (CPU)](#wsl--low-memory-cpu)) |
-| `_ollama_serve_common.sh`     | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in `~/.ollama_active_model`                 |
-| `source_local` / `.csh`     | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local                                                                     |
-| `source_cloud` / `.csh`     | CLOUD mode: unset those env vars and `unalias claude`/`codex`                                                                                        |
-| `mcp_localllm.py`             | MCP server exposing the active local model as `ask_local` / `ask_local_code` tools (local-model debugging)                                           |
-| `usage_report.py`             | Aggregate local LLM token usage from `usage.log`                                                                                                       |
-| `usage.log`                   | JSONL usage records written by `mcp_localllm.py` (gitignored)                                                                                          |
+| File                           | Role                                                                                                                                                     |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `up_version.csh`             | Reinstall Ollama to the latest release, stop/disable the systemd unit, and print the version (manual update helper)                                      |
+| `start_ollama_gemma4_26b.sh` | Thin launcher for `gemma4:26b` (default; thinking-capable MoE — few active params; override `MODEL=` for another size/quant)                        |
+| `start_ollama_qwen36_35b.sh` | Thin launcher for `qwen3.6:35b-a3b-mtp-q4_K_M` (Qwen3.6-35B-A3B MoE, ~3B active, thinking-capable; highest throughput of the three)                    |
+| `start_ollama_gemma3_wsl.sh` | Thin launcher for `gemma3:4b` on a WSL / GPU-less, low-memory host (CPU inference); caps context low (see [WSL / low-memory (CPU)](#wsl--low-memory-cpu)) |
+| `_ollama_serve_common.sh`    | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in `~/.ollama_active_model`                 |
+| `source_local` / `.csh`    | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local                                                                     |
+| `source_cloud` / `.csh`    | CLOUD mode: unset those env vars and `unalias claude`/`codex`                                                                                        |
+| `mcp_localllm.py`            | MCP server exposing the active local model as `ask_local` / `ask_local_code` tools (local-model debugging)                                           |
+| `usage_report.py`            | Aggregate local LLM token usage from `usage.log`                                                                                                       |
+| `usage.log`                  | JSONL usage records written by `mcp_localllm.py` (gitignored)                                                                                          |
 
 ---
 
@@ -332,6 +332,23 @@ the rough quant-vs-memory ladder is:
 > (`ollama ps` shows the split). Final selection should be confirmed against
 > measured VRAM and speed requirements.
 
+**Gemma4-26B (`gemma4:26b`, measured).** Despite the bare `26b` tag this is a
+**sparse MoE**, not dense: `/api/show` reports `architecture gemma4`, **25.8B params**
+with the registry's full tag being `26b-a4b` (**~4B active**), capabilities
+`['completion','vision','tools','thinking']`, native **262144 (256K)** context,
+Apache 2.0. **Measured on this host (RTX 3090 24GB):** **100% GPU, 17 GB resident,
+64000 context, ~100 tok/s** — the default candidate, slightly slower but lighter
+than the qwen35b-a3b. **Quant ceiling on 24 GB:** Ollama publishes `26b` only at
+**q4_K_M (17–18 GB)**; the next steps up — `q8_0` (28 GB) and `mxfp8` (27 GB) — **do
+not fit a 24 GB GPU**, and there is **no q5/q6 GGUF** in between, so q4_K_M is the
+practical quality ceiling for this model here (the `qat` 16 GB and `nvfp4` 17 GB tags
+are q4-class alternatives, not upgrades). Together with the qwen35b-a3b's ~3B active,
+**both adopted local models are MoE with only 3–4B active params** — the shared
+structural ceiling on heavy long-document / multi-step reasoning. Lifting that on a
+24 GB host would need a **dense** 27–32B (cf. the dropped dense Qwen3.6-27B at
+~38 tok/s above for the speed cost). Practical split stands at **gemma4:26b for
+general / document work, qwen35b-a3b for coding**, both at q4 / 64K.
+
 **Qwen3.6-35B-A3B (`qwen3.6:35b-a3b-mtp-q4_K_M`, measured).** Sparse MoE, 35B total
 / **~3B active**, thinking-capable + vision, native 256K context, Apache 2.0. Ollama
 publishes the 35B only at q4_K_M (`qwen3.6:35b` 24GB) or the MTP build
@@ -369,11 +386,11 @@ listed builds; use the formula only for first-pass sizing of new candidates.
 **VRAM ↔ context length (measured + estimated).** The 4K auto-limit below 24 GB is
 the only hard rule; usable context above it depends on weight size and offload:
 
-| GPU VRAM | Practical context        | Notes                                                                      |
-| -------- | ------------------------ | -------------------------------------------------------------------------- |
-| < 24 GB  | 4K (auto), raise w/ care | Ollama auto-limits to 4K; larger needs explicit override + RAM spill       |
+| GPU VRAM | Practical context        | Notes                                                                                                       |
+| -------- | ------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| < 24 GB  | 4K (auto), raise w/ care | Ollama auto-limits to 4K; larger needs explicit override + RAM spill                                        |
 | 24 GB    | up to ~64K               | **Measured** on RTX 3090 — per-model detail in the table below (all 100% GPU @ 64000, q8_0 KV cache) |
-| 48 GB+   | 256K+ (estimate)         | Report-derived,**not measured** here; confirm with `ollama ps`     |
+| 48 GB+   | 256K+ (estimate)         | Report-derived,**not measured** here; confirm with `ollama ps`                                      |
 
 > The 24 GB row is measured on this host; other rows are estimates to be confirmed
 > per environment via the `ollama ps` `CONTEXT` column and CPU/GPU split.
@@ -383,10 +400,10 @@ processor split from `ollama ps`, throughput from `/api/generate`
 (`eval_count` ÷ `eval_duration`). Both builds are measured at 64000 context
 (they lack the VRAM headroom to go higher):
 
-| Model                            | Context | Processor | VRAM (SIZE) | Throughput  |
-| -------------------------------- | ------- | --------- | ----------- | ----------- |
-| `gemma4:26b`                     | 64000   | 100% GPU  | 17 GB       | ~100 tok/s  |
-| `qwen3.6:35b-a3b-mtp-q4_K_M`     | 64000   | 100% GPU  | 22 GB       | ~144 tok/s  |
+| Model                          | Context | Processor | VRAM (SIZE) | Throughput |
+| ------------------------------ | ------- | --------- | ----------- | ---------- |
+| `gemma4:26b`                 | 64000   | 100% GPU  | 17 GB       | ~100 tok/s |
+| `qwen3.6:35b-a3b-mtp-q4_K_M` | 64000   | 100% GPU  | 22 GB       | ~144 tok/s |
 
 > Both models share a **262144 (256K)** native context, but neither can use it on a
 > 24 GB GPU: the 26b (17 GB @ 64K) and qwen35b (22 GB @ 64K) are already near the
@@ -472,10 +489,10 @@ each alias selects is **no longer hard-coded** — it is **auto-detected from th
 running launcher** and can still be overridden by two env vars you set **before**
 sourcing:
 
-| Env var (override before sourcing) | Default                               | Controls                                          |
-| ---------------------------------- | ------------------------------------- | ------------------------------------------------- |
+| Env var (override before sourcing) | Default                              | Controls                                          |
+| ---------------------------------- | ------------------------------------ | ------------------------------------------------- |
 | `LOCALLLM_MODEL`                 | auto (marker → else `gemma4:26b`) | the model tag pinned by the `claude` alias      |
-| `LOCALLLM_CODEX_PROFILE`         | derived from `LOCALLLM_MODEL`       | the Codex profile selected by the `codex` alias |
+| `LOCALLLM_CODEX_PROFILE`         | derived from `LOCALLLM_MODEL`      | the Codex profile selected by the `codex` alias |
 
 **Auto-detection (marker file).** Each start script records the launched model
 tag in `~/.ollama_active_model` (written by `_ollama_serve_common.sh` as soon as
@@ -846,11 +863,11 @@ marketplace review plugins built around `gh` / GitHub PRs (`code-review`,
 (`code-review` needs `gh pr ...` and an open PR). Only **GitHub-independent**,
 local-diff-based options belong here:
 
-| Option                          | GitHub | What it reviews                                                                          |
-| ------------------------------- | ------ | ---------------------------------------------------------------------------------------- |
-| **stop-review-gate** (above)    | none   | Each turn's edit diff → cloud Codex ALLOW/BLOCK. The default; always on, no extra install |
-| **`/code-review ultra`**        | none   | No-arg form bundles the local branch for a cloud multi-agent review; needs no GitHub remote (user-triggered, billed — cannot be launched by the agent) |
-| **direct `git diff` review**    | none   | Hand `git diff main...HEAD` (or any range) straight to the cloud model for an inline review — fully independent of any remote |
+| Option                               | GitHub | What it reviews                                                                                                                                         |
+| ------------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **stop-review-gate** (above)   | none   | Each turn's edit diff → cloud Codex ALLOW/BLOCK. The default; always on, no extra install                                                              |
+| **`/code-review ultra`**     | none   | No-arg form bundles the local branch for a cloud multi-agent review; needs no GitHub remote (user-triggered, billed — cannot be launched by the agent) |
+| **direct `git diff` review** | none   | Hand `git diff main...HEAD` (or any range) straight to the cloud model for an inline review — fully independent of any remote                        |
 
 All three run the review on the cloud model, so they keep the same barter — closed,
 cheap local work; cloud-side accuracy check on the result — **without** depending on
