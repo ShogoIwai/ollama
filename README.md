@@ -637,6 +637,8 @@ and put the profile-specific settings in their own overlay file named
 # ~/.codex/ollama-local.config.toml
 model = "gemma4:26b"
 model_provider = "ollama-local"
+model_context_window = 96000
+model_auto_compact_token_limit = 86000
 ```
 
 Add one overlay file per local model you want a `codex --profile` for; they all
@@ -646,13 +648,24 @@ reuse the single shared `ollama-local` provider:
 # ~/.codex/ollama-gemma-26b.config.toml
 model = "gemma4:26b"
 model_provider = "ollama-local"
+model_context_window = 96000
+model_auto_compact_token_limit = 86000
 ```
 
 ```toml
 # ~/.codex/ollama-qwen36-35b.config.toml
 model = "qwen3.6:35b-a3b-mtp-q4_K_M"
 model_provider = "ollama-local"
+model_context_window = 96000
+model_auto_compact_token_limit = 86000
 ```
+
+`model_context_window` tells Codex the local model's real usable window, and
+`model_auto_compact_token_limit` makes Codex compact before the transcript can
+run into Ollama's 96K server-side limit. Keep `model_context_window` equal to
+`OLLAMA_CONTEXT_LENGTH`; keep the compact limit lower than that so there is
+headroom for the next prompt, tool results, and model output. The local profiles
+use **86K** as the first-pass trigger for a **96K** Ollama daemon.
 
 ```bash
 codex --profile ollama-local       # local gemma4:26b (loads ollama-local.config.toml)
