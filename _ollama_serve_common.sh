@@ -1,12 +1,12 @@
 # Shared core for the per-model Ollama start scripts. NOT executable on its own.
 #
-# A launcher (e.g. start_ollama_gemma4_26b.sh) sets MODEL and then sources this
+# A launcher (e.g. start_ollama_qwen36_35b.sh) sets MODEL and then sources this
 # file. Everything except the model tag is identical across launchers, so it
 # lives here once: tuning env, already-running detection, daemon startup, the
 # readiness wait, the lazy pull, and keeping the daemon in the foreground.
 #
 # Required variable (set by the launcher before sourcing):
-#   MODEL   the Ollama tag to ensure is pulled (e.g. gemma4:26b)
+#   MODEL   the Ollama tag to ensure is pulled (e.g. qwen3.6:35b-a3b-mtp-q4_K_M)
 set -eu
 
 : "${MODEL:?MODEL must be set before sourcing _ollama_serve_common.sh}"

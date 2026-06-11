@@ -7,7 +7,7 @@ Ollama and adapts its behavior to that model's capabilities:
 - The active model is resolved per call from `/api/ps` (loaded model), falling
   back to `/api/tags` (first installed), or the `LOCALLLM_MODEL_ID` override.
 - Capabilities are read from `/api/show`. If the model reports `thinking`
-  (e.g. gemma4), the request sets `think: false` so the answer lands in
+  (e.g. qwen3.6:35b-a3b), the request sets `think: false` so the answer lands in
   `content` instead of being consumed by chain-of-thought reasoning under the
   output-token budget. Non-thinking models are called plainly.
 
@@ -34,7 +34,7 @@ if OLLAMA_HOST.endswith("/v1"):
 # Optional pin. When unset the active model is auto-detected per call. Falls
 # back to the legacy QWEN_MODEL_ID name for backward compatibility.
 MODEL_OVERRIDE = os.environ.get("LOCALLLM_MODEL_ID") or os.environ.get("QWEN_MODEL_ID")
-FALLBACK_MODEL = "gemma4:26b"
+FALLBACK_MODEL = "qwen3.6:35b-a3b-mtp-q4_K_M"
 
 MAX_TOKENS = int(os.environ.get("LOCALLLM_MAX_TOKENS", "2048"))
 TEMPERATURE = float(os.environ.get("LOCALLLM_TEMPERATURE", "0.2"))

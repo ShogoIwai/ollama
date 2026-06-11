@@ -36,7 +36,7 @@ setenv ANTHROPIC_API_KEY ""
 
 # --- Context window: align Claude Code with the local model's real limit ---
 # Claude Code resolves the context window from a built-in per-model table keyed
-# on the model name. The Ollama tags (qwen3.6:* / gemma4:26b) are unknown to it,
+# on the model name. The Ollama tags (qwen3.6:*) are unknown to it,
 # so it falls back to 200000 and auto-compact never fires before Ollama's 64K
 # window (OLLAMA_CONTEXT_LENGTH, default 96000) silently truncates the oldest tokens. The
 # only override env (CLAUDE_CODE_MAX_CONTEXT_TOKENS) is honored ONLY when
@@ -49,11 +49,11 @@ if (! $?CLAUDE_CODE_MAX_CONTEXT_TOKENS) setenv CLAUDE_CODE_MAX_CONTEXT_TOKENS 96
 
 # --- Model / profile selection (override before sourcing to switch model) ---
 # LOCALLLM_MODEL         picks the Ollama tag the `claude` alias pins (e.g.
-#                        gemma4:26b).
+#                        qwen3.6:35b-a3b-mtp-q4_K_M).
 # LOCALLLM_CODEX_PROFILE picks the Codex profile the `codex` alias selects
 #                        (overlay file ~/.codex/<profile>.config.toml that sets
 #                        the model). Default: ollama-local.
-# Example:  setenv LOCALLLM_MODEL gemma4:26b  before  source ollama/source_local.csh
+# Example:  setenv LOCALLLM_MODEL qwen3.6:35b  before  source ollama/source_local.csh
 #
 # Auto-detection: the start scripts (_ollama_serve_common.sh) record the launched
 # model tag in ~/.ollama_active_model. If LOCALLLM_MODEL is not already set, we
@@ -63,7 +63,7 @@ if (! $?LOCALLLM_MODEL) then
     if (-r "$HOME/.ollama_active_model") then
         setenv LOCALLLM_MODEL "`cat $HOME/.ollama_active_model`"
     else
-        setenv LOCALLLM_MODEL "gemma4:26b"
+        setenv LOCALLLM_MODEL "qwen3.6:35b-a3b-mtp-q4_K_M"
     endif
 endif
 
@@ -71,9 +71,6 @@ endif
 # model unless explicitly set. Add a case + overlay file per new local model.
 if (! $?LOCALLLM_CODEX_PROFILE) then
     switch ("$LOCALLLM_MODEL")
-        case gemma4:26b*:
-            setenv LOCALLLM_CODEX_PROFILE "ollama-gemma-26b"
-            breaksw
         case qwen3.6:*:
             setenv LOCALLLM_CODEX_PROFILE "ollama-qwen36-35b"
             breaksw
