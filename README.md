@@ -294,10 +294,11 @@ lives once in the common file. The wrapper:
 > this script** — a daemon started elsewhere (systemd) keeps its own setting.
 > Check the loaded context and CPU/GPU split with `ollama ps`.
 >
-> **VRAM caveat:** the measurements further down were taken at the old 64K
-> default, where 30B+ q4 models already sat ~22 GB on a 24 GB GPU. 96K grows the
-> q8_0 KV cache ~1.5x and may spill to CPU (slower) or OOM. If `ollama ps` shows
-> a CPU split, drop `OLLAMA_KV_CACHE_TYPE=q4_0` or lower `OLLAMA_CONTEXT_LENGTH`.
+> **VRAM caveat:** the measurements further down were taken at the current 96K
+> default. The heavier model (`qwen3.6:35b-a3b` at 22 GB) leaves only ~650 MiB
+> headroom on a 24 GB GPU, so under heavy load its q8_0 KV cache can spill to CPU
+> (slower) or OOM; the lighter `gemma4:26b` (17 GB) has more margin. If `ollama ps`
+> shows a CPU split, drop `OLLAMA_KV_CACHE_TYPE=q4_0` or lower `OLLAMA_CONTEXT_LENGTH`.
 
 > **Hot standby (`OLLAMA_KEEP_ALIVE`):** by default Ollama unloads an idle model
 > after ~5 min, so the next call pays the reload latency. To keep the model
@@ -312,7 +313,7 @@ lives once in the common file. The wrapper:
 > **requires `OLLAMA_FLASH_ATTENTION=1`** to take effect. The wrapper sets
 > `OLLAMA_FLASH_ATTENTION=1` and defaults `OLLAMA_KV_CACHE_TYPE=q8_0` (≈half the
 > KV VRAM of f16 with quality loss below the noise floor, which is what lets
-> 30B+ models hold the 64K context in 24GB); override
+> 30B+ models hold the 96K context in 24GB); override
 > `OLLAMA_KV_CACHE_TYPE=f16` for lossless, or `q4_0` to quantize harder. Both are
 > server-launch env vars (set them alongside the daemon, not on an
 > already-running one). Verified present in the local Ollama (0.30.2).
@@ -343,7 +344,7 @@ the rough quant-vs-memory ladder is:
 with the registry's full tag being `26b-a4b` (**~4B active**), capabilities
 `['completion','vision','tools','thinking']`, native **262144 (256K)** context,
 Apache 2.0. **Measured on this host (RTX 3090 24GB):** **100% GPU, 17 GB resident,
-64000 context, ~100 tok/s** — the default candidate, slightly slower but lighter
+96000 context, ~100 tok/s** — the default candidate, slightly slower but lighter
 than the qwen35b-a3b. **Quant ceiling on 24 GB:** Ollama publishes `26b` only at
 **q4_K_M (17–18 GB)**; the next steps up — `q8_0` (28 GB) and `mxfp8` (27 GB) — **do
 not fit a 24 GB GPU**, and there is **no q5/q6 GGUF** in between, so q4_K_M is the
@@ -353,15 +354,15 @@ are q4-class alternatives, not upgrades). Together with the qwen35b-a3b's ~3B ac
 structural ceiling on heavy long-document / multi-step reasoning. Lifting that on a
 24 GB host would need a **dense** 27–32B (cf. the dropped dense Qwen3.6-27B at
 ~38 tok/s above for the speed cost). Practical split stands at **gemma4:26b for
-general / document work, qwen35b-a3b for coding**, both at q4 / 64K.
+general / document work, qwen35b-a3b for coding**, both at q4 / 96K.
 
 **Qwen3.6-35B-A3B (`qwen3.6:35b-a3b-mtp-q4_K_M`, measured).** Sparse MoE, 35B total
 / **~3B active**, thinking-capable + vision, native 256K context, Apache 2.0. Ollama
 publishes the 35B only at q4_K_M (`qwen3.6:35b` 24GB) or the MTP build
 (`…-mtp-q4_K_M` 23GB) — **no smaller q2/q3 quant**. **Measured on this host (RTX
 3090 24GB):** with the wrapper's `OLLAMA_KV_CACHE_TYPE=q8_0` + flash attention it
-loads at **100% GPU, 22 GB resident (23.4 GB VRAM used), 64000 context, ~144 tok/s
-generation** (prompt ~286 tok/s) — the q8_0 KV cache is what lets the full 64K
+loads at **100% GPU, 22 GB resident (23.9 GB VRAM used), 96000 context, ~87 tok/s
+generation** (prompt ~233 tok/s) — the q8_0 KV cache is what lets the full 96K
 context fit alongside the weights in 24 GB. The 3B-active MoE is what makes a 35B
 model this fast. Positioned as a thinking-capable, higher-capacity alternative to
 the default `gemma4:26b`.
@@ -395,7 +396,7 @@ the only hard rule; usable context above it depends on weight size and offload:
 | GPU VRAM | Practical context        | Notes                                                                                                       |
 | -------- | ------------------------ | ----------------------------------------------------------------------------------------------------------- |
 | < 24 GB  | 4K (auto), raise w/ care | Ollama auto-limits to 4K; larger needs explicit override + RAM spill                                        |
-| 24 GB    | up to ~64K               | **Measured** on RTX 3090 — per-model detail in the table below (all 100% GPU @ 64000, q8_0 KV cache) |
+| 24 GB    | up to ~96K               | **Measured** on RTX 3090 — per-model detail in the table below (all 100% GPU @ 96000, q8_0 KV cache) |
 | 48 GB+   | 256K+ (estimate)         | Report-derived,**not measured** here; confirm with `ollama ps`                                      |
 
 > The 24 GB row is measured on this host; other rows are estimates to be confirmed
@@ -403,27 +404,25 @@ the only hard rule; usable context above it depends on weight size and offload:
 
 **Per-model measured values (RTX 3090, 24 GB).** `OLLAMA_KV_CACHE_TYPE=q8_0`; SIZE /
 processor split from `ollama ps`, throughput from `/api/generate`
-(`eval_count` ÷ `eval_duration`). The 64K rows are the original measurements;
-the 96K row is the current wrapper default, measured **lightly loaded** (KV cache
-mostly empty — see caveat below):
+(`eval_count` ÷ `eval_duration`). Both rows are measured at the current wrapper
+default of **96000**, **lightly loaded** (KV cache mostly empty — see caveat below):
 
 | Model                          | Context | Processor | VRAM (SIZE) | Throughput |
 | ------------------------------ | ------- | --------- | ----------- | ---------- |
-| `gemma4:26b`                 | 64000   | 100% GPU  | 17 GB       | ~100 tok/s |
-| `qwen3.6:35b-a3b-mtp-q4_K_M` | 64000   | 100% GPU  | 22 GB       | ~144 tok/s |
-| `qwen3.6:35b-a3b-mtp-q4_K_M` | 96000   | 100% GPU  | 22 GB (light load; 23.9/24 GB used) | — |
+| `gemma4:26b`                 | 96000   | 100% GPU  | 17 GB       | ~100 tok/s |
+| `qwen3.6:35b-a3b-mtp-q4_K_M` | 96000   | 100% GPU  | 22 GB (light load; 23.9/24 GB used) | ~87 tok/s |
 
-> The 96K SIZE matches 64K because Ollama allocates KV lazily — at warm-up the KV
-> cache is near-empty. With only ~650 MiB VRAM headroom (23.9/24 GB), a task that
-> fills toward 96K can grow the q8_0 KV past the ceiling and **drop to a CPU
-> split** mid-run. If `ollama ps` shows the split degrade under load, restart with
+> The reported SIZE reflects a near-empty KV cache because Ollama allocates KV
+> lazily — at warm-up little of the 96K is in use. With only ~650 MiB VRAM headroom
+> (23.9/24 GB), a task that fills toward 96K can grow the q8_0 KV past the ceiling
+> and **drop to a CPU split** mid-run. If `ollama ps` shows the split degrade under load, restart with
 > `OLLAMA_KV_CACHE_TYPE=q4_0` (halves KV VRAM) or lower `OLLAMA_CONTEXT_LENGTH`.
 
 > Both models share a **262144 (256K)** native context, but neither can use it on a
-> 24 GB GPU: the figures above (26b 17 GB, qwen35b 22 GB) were measured at **64K**,
-> already near the 24 GB ceiling. The wrapper default has since been raised to
-> **96000** (to give Claude Code agent runs more headroom); this grows the q8_0 KV
-> cache ~1.5x and **may spill to CPU**, so re-check `ollama ps` after a restart and
+> 24 GB GPU: the figures above (26b 17 GB, qwen35b 22 GB) were measured at **96K**,
+> already near the 24 GB ceiling — the wrapper default is **96000** (to give Claude
+> Code agent runs more headroom). The q8_0 KV cache leaves only ~650 MiB headroom and
+> **may spill to CPU** under heavy load, so re-check `ollama ps` after a restart and
 > fall back to `OLLAMA_KV_CACHE_TYPE=q4_0` or a lower `OLLAMA_CONTEXT_LENGTH` if the
 > split or throughput regresses. (SIZE in `ollama ps` does not grow linearly with the
 > limit: Ollama allocates KV lazily, so VRAM only fills as context is used.)
