@@ -23,7 +23,12 @@ export OLLAMA_HOST="${OLLAMA_HOST:-http://localhost:11434}"
 
 # Agent use needs a large context. Ollama auto-limits to 4K when VRAM < 24GB,
 # so override explicitly (minimum 64K recommended for coding agents).
-export OLLAMA_CONTEXT_LENGTH="${OLLAMA_CONTEXT_LENGTH:-64000}"
+# NOTE: keep this in sync with CLAUDE_CODE_MAX_CONTEXT_TOKENS in source_local /
+# source_local.csh — Claude Code's compact gauge must match the real window.
+# VRAM: 30B+ q4 models sit ~22 GB at 64K with q8_0 KV; 96K grows the KV cache
+# ~1.5x and may spill to CPU on a 24 GB GPU (slower). If `ollama ps` shows a
+# CPU split or it OOMs, drop OLLAMA_KV_CACHE_TYPE to q4_0 or lower the value.
+export OLLAMA_CONTEXT_LENGTH="${OLLAMA_CONTEXT_LENGTH:-96000}"
 
 # Hot standby: keep the model resident so back-to-back agent calls don't pay the
 # reload latency. Default 2h; set -1 to never unload, or a short value to free

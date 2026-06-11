@@ -276,7 +276,7 @@ everything else (daemon start, readiness wait, lazy pull, foreground lifecycle)
 lives once in the common file. The wrapper:
 
 - exports `OLLAMA_HOST` (default `http://localhost:11434`) and
-  `OLLAMA_CONTEXT_LENGTH` (default `64000`);
+  `OLLAMA_CONTEXT_LENGTH` (default `96000`);
 - if a daemon is already reachable, reports and exits 0 (does nothing);
 - otherwise starts `ollama serve` in the background, waits for the API, pulls
   the selected `MODEL` if missing, then keeps the daemon in the foreground.
@@ -288,10 +288,16 @@ lives once in the common file. The wrapper:
 
 > **Context length:** Ollama's auto-picked default is too small for agent use —
 > as low as 4K when VRAM < 24GB, and even a 24GB RTX 3090 only defaults to
-> ~32768. So the wrapper sets `OLLAMA_CONTEXT_LENGTH=64000`. **This applies only
+> ~32768. So the wrapper sets `OLLAMA_CONTEXT_LENGTH=96000` (kept in sync with
+> `CLAUDE_CODE_MAX_CONTEXT_TOKENS` in `source_local`). **This applies only
 > to the `serve` launched by
 > this script** — a daemon started elsewhere (systemd) keeps its own setting.
 > Check the loaded context and CPU/GPU split with `ollama ps`.
+>
+> **VRAM caveat:** the measurements further down were taken at the old 64K
+> default, where 30B+ q4 models already sat ~22 GB on a 24 GB GPU. 96K grows the
+> q8_0 KV cache ~1.5x and may spill to CPU (slower) or OOM. If `ollama ps` shows
+> a CPU split, drop `OLLAMA_KV_CACHE_TYPE=q4_0` or lower `OLLAMA_CONTEXT_LENGTH`.
 
 > **Hot standby (`OLLAMA_KEEP_ALIVE`):** by default Ollama unloads an idle model
 > after ~5 min, so the next call pays the reload latency. To keep the model
@@ -397,20 +403,30 @@ the only hard rule; usable context above it depends on weight size and offload:
 
 **Per-model measured values (RTX 3090, 24 GB).** `OLLAMA_KV_CACHE_TYPE=q8_0`; SIZE /
 processor split from `ollama ps`, throughput from `/api/generate`
-(`eval_count` ÷ `eval_duration`). Both builds are measured at 64000 context
-(they lack the VRAM headroom to go higher):
+(`eval_count` ÷ `eval_duration`). The 64K rows are the original measurements;
+the 96K row is the current wrapper default, measured **lightly loaded** (KV cache
+mostly empty — see caveat below):
 
 | Model                          | Context | Processor | VRAM (SIZE) | Throughput |
 | ------------------------------ | ------- | --------- | ----------- | ---------- |
 | `gemma4:26b`                 | 64000   | 100% GPU  | 17 GB       | ~100 tok/s |
 | `qwen3.6:35b-a3b-mtp-q4_K_M` | 64000   | 100% GPU  | 22 GB       | ~144 tok/s |
+| `qwen3.6:35b-a3b-mtp-q4_K_M` | 96000   | 100% GPU  | 22 GB (light load; 23.9/24 GB used) | — |
+
+> The 96K SIZE matches 64K because Ollama allocates KV lazily — at warm-up the KV
+> cache is near-empty. With only ~650 MiB VRAM headroom (23.9/24 GB), a task that
+> fills toward 96K can grow the q8_0 KV past the ceiling and **drop to a CPU
+> split** mid-run. If `ollama ps` shows the split degrade under load, restart with
+> `OLLAMA_KV_CACHE_TYPE=q4_0` (halves KV VRAM) or lower `OLLAMA_CONTEXT_LENGTH`.
 
 > Both models share a **262144 (256K)** native context, but neither can use it on a
-> 24 GB GPU: the 26b (17 GB @ 64K) and qwen35b (22 GB @ 64K) are already near the
-> 24 GB ceiling, so raising *their* context would spill the KV cache to CPU and tank
-> throughput — they stay at the shared 64000 default. (SIZE in `ollama ps` does not
-> grow linearly with the limit: Ollama allocates KV lazily, so VRAM only fills as
-> context is used.)
+> 24 GB GPU: the figures above (26b 17 GB, qwen35b 22 GB) were measured at **64K**,
+> already near the 24 GB ceiling. The wrapper default has since been raised to
+> **96000** (to give Claude Code agent runs more headroom); this grows the q8_0 KV
+> cache ~1.5x and **may spill to CPU**, so re-check `ollama ps` after a restart and
+> fall back to `OLLAMA_KV_CACHE_TYPE=q4_0` or a lower `OLLAMA_CONTEXT_LENGTH` if the
+> split or throughput regresses. (SIZE in `ollama ps` does not grow linearly with the
+> limit: Ollama allocates KV lazily, so VRAM only fills as context is used.)
 
 ---
 
@@ -443,7 +459,7 @@ Measured on an 8 GB / 12-thread WSL host: `gemma3:4b` runs at **~11–12 tok/s**
 #   OLLAMA_CONTEXT_LENGTH=4096 ./start_ollama_gemma3_wsl.sh   # tighter RAM
 ```
 
-Unlike the GPU launchers (which default `OLLAMA_CONTEXT_LENGTH=64000`), the WSL
+Unlike the GPU launchers (which default `OLLAMA_CONTEXT_LENGTH=96000`), the WSL
 launcher defaults it to **8192**. On CPU with limited RAM, a 16K+ context grows
 the KV cache to 3–4 GB and drives the host into swap (sub-1 tok/s); drop to
 4096 if memory is tight. Both `MODEL` and `OLLAMA_CONTEXT_LENGTH` can be
@@ -478,7 +494,7 @@ those too, so exporting them would silently redirect Codex to the local server.
 
 | File                        | Mode          | Effect                                                                                                                                                                                           |
 | --------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `source_local` / `.csh` | LOCAL(Ollama) | export `ANTHROPIC_BASE_URL=:11434`, `ANTHROPIC_AUTH_TOKEN=ollama`, `ANTHROPIC_API_KEY=""`, `OLLAMA_HOST`, `DISABLE_COMPACT=1`, `CLAUDE_CODE_MAX_CONTEXT_TOKENS=64000` (see [Context window](#context-window-in-local-mode)); alias `claude`/`codex` to local (see [Aliases](#aliases-set-by-source_local)) |
+| `source_local` / `.csh` | LOCAL(Ollama) | export `ANTHROPIC_BASE_URL=:11434`, `ANTHROPIC_AUTH_TOKEN=ollama`, `ANTHROPIC_API_KEY=""`, `OLLAMA_HOST`, `DISABLE_COMPACT=1`, `CLAUDE_CODE_MAX_CONTEXT_TOKENS=96000` (see [Context window](#context-window-in-local-mode)); alias `claude`/`codex` to local (see [Aliases](#aliases-set-by-source_local)) |
 | `source_cloud` / `.csh` | CLOUD         | unset the above (tcsh `unsetenv`) and `unalias claude` / `codex`; re-set `ANTHROPIC_API_KEY` if you authenticate by key                                                                  |
 
 ### Context window in LOCAL mode
@@ -488,17 +504,18 @@ from a **built-in per-model table keyed on the model name** (bundle fn `k87`):
 `[1m]` tags and `opus-4-8`/`fable-5` etc. get 1M, and **everything it doesn't
 recognize falls back to 200000**. The Ollama tags (`qwen3.6:*`, `gemma4:26b`)
 are unknown, so Claude Code thinks it has 200K and **never auto-compacts before
-Ollama's real 64K window** (`OLLAMA_CONTEXT_LENGTH=64000`) silently truncates the
-oldest tokens — the model quietly loses early context with no error.
+Ollama's real window** (`OLLAMA_CONTEXT_LENGTH`, default 96000) silently truncates
+the oldest tokens — the model quietly loses early context with no error.
 
-There is **no clean way to keep auto-compact and fire it at 64K**: the only
-override env, `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, is honored **only when
+There is **no clean way to keep auto-compact and fire it at the real window**: the
+only override env, `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, is honored **only when
 `DISABLE_COMPACT` is set** (bundle fn `v87`). So `source_local` makes the
 deliberate trade-off:
 
 - `DISABLE_COMPACT=1` — turns auto-compact off, and
-- `CLAUDE_CODE_MAX_CONTEXT_TOKENS=64000` — makes the `/context` gauge and the
-  "approaching limit" warning reflect the **real 64K**.
+- `CLAUDE_CODE_MAX_CONTEXT_TOKENS=96000` — makes the `/context` gauge and the
+  "approaching limit" warning reflect the **real window** (kept equal to
+  `OLLAMA_CONTEXT_LENGTH`; change both together).
 
 Net effect: **you compact manually** (`/compact` or `/clear`) when the honest
 gauge says you're near the limit, instead of being silently truncated. If you
@@ -732,7 +749,7 @@ python3 ollama/usage_report.py --json     # machine-readable totals
 | -------------------- | --------------------------------------------- | ------------------------------------------------------------- |
 | Output per call      | **≤ 2,048 tokens**                     | `mcp_localllm.py` `num_predict` (`LOCALLLM_MAX_TOKENS`) |
 | Sampling temperature | `0.2`                                       | `mcp_localllm.py` (`LOCALLLM_TEMPERATURE`)                |
-| Context window       | `OLLAMA_CONTEXT_LENGTH` (64000 via wrapper) | server-side (per loaded model)                                |
+| Context window       | `OLLAMA_CONTEXT_LENGTH` (96000 via wrapper) | server-side (per loaded model)                                |
 
 `OLLAMA_CONTEXT_LENGTH` is the **combined** input+output budget per loaded
 model. The `2,048` figure is the per-call **output** limit set by the MCP server.
