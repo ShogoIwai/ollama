@@ -74,6 +74,9 @@ if (! $?LOCALLLM_CODEX_PROFILE) then
         case qwen3.6:*:
             setenv LOCALLLM_CODEX_PROFILE "ollama-qwen36-35b"
             breaksw
+        case LiquidAI/lfm2.5-*:
+            setenv LOCALLLM_CODEX_PROFILE "ollama-lfm25"
+            breaksw
         default:
             setenv LOCALLLM_CODEX_PROFILE "ollama-local"
             breaksw
