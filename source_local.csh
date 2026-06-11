@@ -20,6 +20,8 @@
 if ($?_LOCALLLM_SOURCED) then
     if ($?LOCALLLM_MODEL) unsetenv LOCALLLM_MODEL
     if ($?LOCALLLM_CODEX_PROFILE) unsetenv LOCALLLM_CODEX_PROFILE
+    if ($?DISABLE_COMPACT) unsetenv DISABLE_COMPACT
+    if ($?CLAUDE_CODE_MAX_CONTEXT_TOKENS) unsetenv CLAUDE_CODE_MAX_CONTEXT_TOKENS
     unsetenv _LOCALLLM_SOURCED
     unalias claude
     unalias codex
@@ -31,6 +33,19 @@ setenv OLLAMA_HOST "http://localhost:11434"
 setenv ANTHROPIC_BASE_URL "http://localhost:11434"
 setenv ANTHROPIC_AUTH_TOKEN "ollama"
 setenv ANTHROPIC_API_KEY ""
+
+# --- Context window: align Claude Code with the local model's real limit ---
+# Claude Code resolves the context window from a built-in per-model table keyed
+# on the model name. The Ollama tags (qwen3.6:* / gemma4:26b) are unknown to it,
+# so it falls back to 200000 and auto-compact never fires before Ollama's 64K
+# window (OLLAMA_CONTEXT_LENGTH=64000) silently truncates the oldest tokens. The
+# only override env (CLAUDE_CODE_MAX_CONTEXT_TOKENS) is honored ONLY when
+# DISABLE_COMPACT is set (see bundle fn v87). So we trade auto-compact for an
+# honest /context gauge + "approaching limit" warning at the real 64K, and drive
+# /compact or /clear manually. source_cloud unsets both. Override
+# CLAUDE_CODE_MAX_CONTEXT_TOKENS before sourcing if you raise the Ollama window.
+setenv DISABLE_COMPACT 1
+if (! $?CLAUDE_CODE_MAX_CONTEXT_TOKENS) setenv CLAUDE_CODE_MAX_CONTEXT_TOKENS 64000
 
 # --- Model / profile selection (override before sourcing to switch model) ---
 # LOCALLLM_MODEL         picks the Ollama tag the `claude` alias pins (e.g.

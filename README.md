@@ -478,8 +478,34 @@ those too, so exporting them would silently redirect Codex to the local server.
 
 | File                        | Mode          | Effect                                                                                                                                                                                           |
 | --------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `source_local` / `.csh` | LOCAL(Ollama) | export `ANTHROPIC_BASE_URL=:11434`, `ANTHROPIC_AUTH_TOKEN=ollama`, `ANTHROPIC_API_KEY=""`, `OLLAMA_HOST`; alias `claude`/`codex` to local (see [Aliases](#aliases-set-by-source_local)) |
+| `source_local` / `.csh` | LOCAL(Ollama) | export `ANTHROPIC_BASE_URL=:11434`, `ANTHROPIC_AUTH_TOKEN=ollama`, `ANTHROPIC_API_KEY=""`, `OLLAMA_HOST`, `DISABLE_COMPACT=1`, `CLAUDE_CODE_MAX_CONTEXT_TOKENS=64000` (see [Context window](#context-window-in-local-mode)); alias `claude`/`codex` to local (see [Aliases](#aliases-set-by-source_local)) |
 | `source_cloud` / `.csh` | CLOUD         | unset the above (tcsh `unsetenv`) and `unalias claude` / `codex`; re-set `ANTHROPIC_API_KEY` if you authenticate by key                                                                  |
+
+### Context window in LOCAL mode
+
+Claude Code resolves its context window — and thus the auto-compact trigger —
+from a **built-in per-model table keyed on the model name** (bundle fn `k87`):
+`[1m]` tags and `opus-4-8`/`fable-5` etc. get 1M, and **everything it doesn't
+recognize falls back to 200000**. The Ollama tags (`qwen3.6:*`, `gemma4:26b`)
+are unknown, so Claude Code thinks it has 200K and **never auto-compacts before
+Ollama's real 64K window** (`OLLAMA_CONTEXT_LENGTH=64000`) silently truncates the
+oldest tokens — the model quietly loses early context with no error.
+
+There is **no clean way to keep auto-compact and fire it at 64K**: the only
+override env, `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, is honored **only when
+`DISABLE_COMPACT` is set** (bundle fn `v87`). So `source_local` makes the
+deliberate trade-off:
+
+- `DISABLE_COMPACT=1` — turns auto-compact off, and
+- `CLAUDE_CODE_MAX_CONTEXT_TOKENS=64000` — makes the `/context` gauge and the
+  "approaching limit" warning reflect the **real 64K**.
+
+Net effect: **you compact manually** (`/compact` or `/clear`) when the honest
+gauge says you're near the limit, instead of being silently truncated. If you
+raise the Ollama window, set `CLAUDE_CODE_MAX_CONTEXT_TOKENS` to the new value
+**before** sourcing. `source_cloud` unsets both, so cloud mode is unaffected.
+The MCP path (`ask_local` / `ask_local_code`) is one request per call and never
+accumulates a conversation, so none of this applies there.
 
 ### Aliases set by `source_local`
 

@@ -9,6 +9,8 @@ unsetenv ANTHROPIC_BASE_URL
 unsetenv ANTHROPIC_AUTH_TOKEN
 unsetenv ANTHROPIC_API_KEY
 unsetenv OLLAMA_HOST
+if ($?DISABLE_COMPACT) unsetenv DISABLE_COMPACT                          # local-mode context-window
+if ($?CLAUDE_CODE_MAX_CONTEXT_TOKENS) unsetenv CLAUDE_CODE_MAX_CONTEXT_TOKENS  # overrides (see source_local)
 if ($?LOCALLLM_MODEL) unsetenv LOCALLLM_MODEL
 if ($?LOCALLLM_CODEX_PROFILE) unsetenv LOCALLLM_CODEX_PROFILE
 if ($?_LOCALLLM_SOURCED) unsetenv _LOCALLLM_SOURCED   # sentinel cleared: no longer in LOCAL mode
