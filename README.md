@@ -225,7 +225,7 @@ marker to fall back to the `qwen3.6:35b-a3b-mtp-q4_K_M` default.
 | `_ollama_serve_common.sh`    | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in `~/.ollama_active_model`                 |
 | `source_local` / `.csh`    | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local                                                                     |
 | `source_cloud` / `.csh`    | CLOUD mode: unset those env vars and `unalias claude`/`codex`                                                                                        |
-| `mcp_localllm.py`            | MCP server exposing the active local model as `ask_local` / `ask_local_code` tools (local-model debugging)                                           |
+| `mcp_localllm.py`            | MCP server exposing the active local model as `ask_local` / `ask_local_code` tools (**deprecated**; register on demand for local-model debugging only) |
 | `mcp_gemini.py`              | MCP server giving local runs an external-access path via Gemini (`ask_gemini_web` / `ask_gemini`), backed by the Antigravity CLI (`agy`) — no API key |
 | `usage_report.py`            | Aggregate local LLM **and** Gemini usage from `usage_localllm.log` + `usage_gemini.log`                                                                |
 | `usage_localllm.log`         | JSONL usage records written by `mcp_localllm.py` (gitignored)                                                                                          |
@@ -729,12 +729,59 @@ codex                                    # cloud (default profile)
 
 ## MCP Integration
 
-> **Scope:** the MCP server is positioned as a **local-model debugging /
-> inspection path** — a quick text-in/text-out way to exercise whichever model
-> Ollama has loaded from inside Claude Code / Codex. It is **not** a token-saving
-> delegation layer; the cloud-vs-local decision is made up front by static
-> switching (see [cloud / local static switching](#cloud--local-static-switching)),
-> per whole task, not per subtask.
+> **Scope:** two stdio MCP servers ship here, with very different standing:
+>
+> - **`gemini` (`mcp_gemini.py`) — the primary, always-registered MCP.** It is
+>   the external-access bridge (`ask_gemini_web` / `ask_gemini`). In **local**
+>   mode it is effectively the only outward path (local models are weak at
+>   web/RAG); in **cloud** mode it is cheaper and lower-maintenance than a
+>   self-hosted RAG and needs no API key. Keep it registered in both modes.
+> - **`localllm` (`mcp_localllm.py`) — deprecated, register on demand only.** Its
+>   path is **single-shot** (no history), so it cannot share Claude Code's
+>   working context; that need is served better by a **separate terminal**
+>   running `source_local` + `claude --model` with a shared resume. Use `localllm`
+>   only as an optional debugging path for the loaded Ollama model when you
+>   explicitly want to exercise it — it is **not registered by default**.
+>
+> Neither server is a token-saving delegation layer; the cloud-vs-local decision
+> is made up front by static switching (see
+> [cloud / local static switching](#cloud--local-static-switching)), per whole
+> task, not per subtask.
+
+### Gemini external-access bridge (`mcp_gemini.py`) — primary
+
+Local models are weak at web access / RAG, so outward lookups are delegated to
+Gemini instead of building a crawler + vector store. `mcp_gemini.py` is a stdio
+MCP server (stdlib + FastMCP, same shape as `mcp_localllm.py`) that shells out
+to the **Antigravity CLI** (`agy -p`):
+
+| Tool                  | Use for                                                                 |
+| --------------------- | ----------------------------------------------------------------------- |
+| `ask_gemini_web(query)` | External info: current facts, docs, release notes — Gemini web search, cited |
+| `ask_gemini(prompt)`    | Reasoning / summarization / drafting without forced web search          |
+
+- **No API key.** Reuses the OAuth credentials under `~/.gemini` that `agy`
+  already holds (works on enterprise accounts where an API key cannot be minted).
+- **`stdin=DEVNULL` is required** when shelling out — otherwise `agy` inherits
+  the MCP host's JSON-RPC stdin and hangs. (Already handled in the server.)
+- **Model is pinned to a Gemini model** (`Gemini 3.5 Flash (Low)` — low effort
+  to stay under the tight token limit). `agy`'s own default is off-brand here
+  (`Claude Opus 4.6 (Thinking)`). Override with `AGY_MODEL` (see `agy models`);
+  set `AGY_MODEL=` empty to fall back to `agy`'s configured default.
+- Other env: `AGY_BIN` (binary path), `AGY_WORKDIR` (cwd, default `~/rep`),
+  `AGY_TIMEOUT` (wall-clock cap, default 300s).
+- Latency: `agy` cold-starts its language server each call, so expect
+  ~7 s (`ask_gemini`) to ~20–30 s (`ask_gemini_web`).
+
+Register globally (this is the primary MCP — keep it on in both cloud and local
+modes):
+
+```bash
+claude mcp add -s user gemini python3 $REP/ollama/mcp_gemini.py
+codex mcp add gemini -- python3 $REP/ollama/mcp_gemini.py
+```
+
+### Local model bridge (`mcp_localllm.py`) — deprecated, on demand
 
 `mcp_localllm.py` exposes the **active local model** as two stdio MCP tools. It
 is model-agnostic: it auto-detects whichever model Ollama currently has loaded
@@ -775,18 +822,23 @@ python3 -c 'import mcp'                   # verify (no output = OK)
 > calls fail with `ModuleNotFoundError: No module named 'mcp'`. Install `mcp`
 > for that interpreter (or register with its absolute `python3` path).
 
-### Register
+### Register (on demand only)
+
+> `localllm` is **deprecated** as an everyday tool and **not registered by
+> default** — see the [Scope](#mcp-integration) note above. Register it only when
+> you explicitly want to debug the loaded Ollama model, and prefer a
+> **session-scoped** add (`-s local`) so it does not linger in every project.
 
 ```bash
-# Claude Code
-claude mcp add -s user localllm python3 $REP/ollama/mcp_localllm.py
+# Claude Code (session-scoped; drop -s for project, or -s user to pin globally)
+claude mcp add -s local localllm python3 $REP/ollama/mcp_localllm.py
 
 # Codex
 codex mcp add localllm -- python3 $REP/ollama/mcp_localllm.py
 ```
 
 Verify in Claude Code with `/mcp` (expect `localllm` connected) and call
-`ask_local`.
+`ask_local`. Remove it again with `claude mcp remove localllm` when done.
 
 ### Available tools
 
@@ -812,38 +864,6 @@ python3 ollama/usage_report.py --by tool        # group by tool
 python3 ollama/usage_report.py --by day         # group by day
 python3 ollama/usage_report.py --json           # machine-readable totals
 python3 ollama/usage_report.py usage_gemini.log # one explicit file
-```
-
-### Gemini external-access bridge (`mcp_gemini.py`)
-
-Local models are weak at web access / RAG, so outward lookups are delegated to
-Gemini instead of building a crawler + vector store. `mcp_gemini.py` is a stdio
-MCP server (stdlib + FastMCP, same shape as `mcp_localllm.py`) that shells out
-to the **Antigravity CLI** (`agy -p`):
-
-| Tool                  | Use for                                                                 |
-| --------------------- | ----------------------------------------------------------------------- |
-| `ask_gemini_web(query)` | External info: current facts, docs, release notes — Gemini web search, cited |
-| `ask_gemini(prompt)`    | Reasoning / summarization / drafting without forced web search          |
-
-- **No API key.** Reuses the OAuth credentials under `~/.gemini` that `agy`
-  already holds (works on enterprise accounts where an API key cannot be minted).
-- **`stdin=DEVNULL` is required** when shelling out — otherwise `agy` inherits
-  the MCP host's JSON-RPC stdin and hangs. (Already handled in the server.)
-- **Model is pinned to a Gemini model** (`Gemini 3.5 Flash (Low)` — low effort
-  to stay under the tight token limit). `agy`'s own default is off-brand here
-  (`Claude Opus 4.6 (Thinking)`). Override with `AGY_MODEL` (see `agy models`);
-  set `AGY_MODEL=` empty to fall back to `agy`'s configured default.
-- Other env: `AGY_BIN` (binary path), `AGY_WORKDIR` (cwd, default `~/rep`),
-  `AGY_TIMEOUT` (wall-clock cap, default 300s).
-- Latency: `agy` cold-starts its language server each call, so expect
-  ~7 s (`ask_gemini`) to ~20–30 s (`ask_gemini_web`).
-
-Register alongside `localllm`:
-
-```bash
-claude mcp add -s user gemini python3 $REP/ollama/mcp_gemini.py
-codex mcp add gemini -- python3 $REP/ollama/mcp_gemini.py
 ```
 
 ### Token limits and sampling
