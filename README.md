@@ -225,11 +225,11 @@ marker to fall back to the `qwen3.6:35b-a3b-mtp-q4_K_M` default.
 | `_ollama_serve_common.sh`    | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in `~/.ollama_active_model`                 |
 | `source_local` / `.csh`    | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local                                                                     |
 | `source_cloud` / `.csh`    | CLOUD mode: unset those env vars and `unalias claude`/`codex`                                                                                        |
-| `mcp_localllm.py`            | MCP server exposing the active local model as `ask_local` / `ask_local_code` tools (**deprecated**; register on demand for local-model debugging only) |
 | `mcp_gemini.py`              | MCP server giving local runs an external-access path via Gemini (`ask_gemini_web` / `ask_gemini`), backed by the Antigravity CLI (`agy`) — no API key |
+| `mcp_localllm.py`            | MCP server exposing the active local model as `ask_local` / `ask_local_code` tools (**deprecated**; register on demand for local-model debugging only) |
 | `usage_report.py`            | Aggregate local LLM **and** Gemini usage from `usage_localllm.log` + `usage_gemini.log`                                                                |
-| `usage_localllm.log`         | JSONL usage records written by `mcp_localllm.py` (gitignored)                                                                                          |
 | `usage_gemini.log`           | JSONL usage records written by `mcp_gemini.py` (gitignored)                                                                                            |
+| `usage_localllm.log`         | JSONL usage records written by `mcp_localllm.py` (gitignored)                                                                                          |
 
 ---
 
