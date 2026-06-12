@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
-"""Aggregate local LLM token usage.
+"""Aggregate local LLM + Gemini usage.
 
-Reads the JSONL written by mcp_localllm.py (default: ./usage.log) and prints a
-daily / per-tool summary of call counts and token consumption.
+Reads the JSONL logs written by mcp_localllm.py (usage_localllm.log) and
+mcp_gemini.py (usage_gemini.log) and prints a summary of call counts, token
+consumption, and latency. Both logs share the same schema; Gemini rows have
+null token fields (agy does not report token counts), so token columns reflect
+local-LLM usage only while call/latency columns cover both.
 
 Usage:
-    python3 usage_report.py                 # summarize ./usage.log
-    python3 usage_report.py path/to/usage.log
-    python3 usage_report.py --by tool       # group by tool only
-    python3 usage_report.py --by day        # group by day only
-    python3 usage_report.py --json          # machine-readable totals
+    python3 usage_report.py                      # both default logs
+    python3 usage_report.py usage_gemini.log     # one explicit file
+    python3 usage_report.py a.log b.log          # several files
+    python3 usage_report.py --by source          # group by source only
+    python3 usage_report.py --by tool            # group by tool only
+    python3 usage_report.py --by day             # group by day only
+    python3 usage_report.py --by source-tool     # source + tool
+    python3 usage_report.py --json               # machine-readable totals
 """
 
 import argparse
@@ -18,57 +24,91 @@ import os
 import sys
 from collections import defaultdict
 
+DEFAULT_LOGS = ["usage_localllm.log", "usage_gemini.log"]
+
+
+def _source_from_path(path):
+    base = os.path.basename(path)
+    if base.startswith("usage_") and base.endswith(".log"):
+        return base[len("usage_"):-len(".log")]
+    return base
+
 
 def _load(path):
     rows = []
+    fallback_source = _source_from_path(path)
     with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
             try:
-                rows.append(json.loads(line))
+                row = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            row.setdefault("source", fallback_source)
+            rows.append(row)
     return rows
 
 
 def _key(row, by):
     day = (row.get("ts") or "")[:10]
     tool = row.get("tool") or "?"
-    if by == "day":
-        return (day,)
-    if by == "tool":
-        return (tool,)
-    return (day, tool)
+    source = row.get("source") or "?"
+    parts = {
+        "day": (day,),
+        "tool": (tool,),
+        "source": (source,),
+        "day-tool": (day, tool),
+        "source-tool": (source, tool),
+        "day-source": (day, source),
+    }
+    return parts[by]
 
 
 def _agg(rows, by):
-    buckets = defaultdict(lambda: {"calls": 0, "prompt": 0, "completion": 0, "total": 0})
+    buckets = defaultdict(
+        lambda: {"calls": 0, "prompt": 0, "completion": 0, "total": 0, "latency": 0.0}
+    )
     for r in rows:
         b = buckets[_key(r, by)]
         b["calls"] += 1
         b["prompt"] += r.get("prompt_tokens") or 0
         b["completion"] += r.get("completion_tokens") or 0
         b["total"] += r.get("total_tokens") or 0
+        b["latency"] += r.get("latency_s") or 0.0
     return buckets
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     here = os.path.dirname(os.path.abspath(__file__))
-    ap.add_argument("logfile", nargs="?", default=os.path.join(here, "usage.log"))
-    ap.add_argument("--by", choices=["day", "tool", "day-tool"], default="day-tool")
+    ap.add_argument(
+        "logfiles",
+        nargs="*",
+        default=[os.path.join(here, n) for n in DEFAULT_LOGS],
+    )
+    ap.add_argument(
+        "--by",
+        choices=["day", "tool", "source", "day-tool", "source-tool", "day-source"],
+        default="source-tool",
+    )
     ap.add_argument("--json", action="store_true", help="emit JSON instead of a table")
     args = ap.parse_args()
 
-    if not os.path.exists(args.logfile):
-        print(f"no usage log found: {args.logfile}", file=sys.stderr)
+    rows = []
+    found = []
+    for path in args.logfiles:
+        if os.path.exists(path):
+            rows.extend(_load(path))
+            found.append(path)
+    if not found:
+        print("no usage logs found: " + ", ".join(args.logfiles), file=sys.stderr)
         return 1
-
-    rows = _load(args.logfile)
     if not rows:
-        print("usage log is empty", file=sys.stderr)
+        print("usage logs are empty", file=sys.stderr)
         return 1
 
     buckets = _agg(rows, args.by)
@@ -78,18 +118,29 @@ def main():
         print(json.dumps(out, ensure_ascii=False, indent=2))
         return 0
 
-    hdr_key = {"day": ["day"], "tool": ["tool"], "day-tool": ["day", "tool"]}[args.by]
-    keyw = max([len(" / ".join(map(str, k))) for k in buckets] + [len(" / ".join(hdr_key))])
-    print(f"{' / '.join(hdr_key):<{keyw}}  {'calls':>6}  {'prompt':>9}  {'compl':>9}  {'total':>9}")
-    print("-" * (keyw + 40))
-    tot = {"calls": 0, "prompt": 0, "completion": 0, "total": 0}
+    hdr_key = args.by.split("-")
+    keyw = max(
+        [len(" / ".join(map(str, k))) for k in buckets] + [len(" / ".join(hdr_key))]
+    )
+    print(
+        f"{' / '.join(hdr_key):<{keyw}}  {'calls':>6}  {'prompt':>9}  "
+        f"{'compl':>9}  {'total':>9}  {'lat_s':>8}"
+    )
+    print("-" * (keyw + 51))
+    tot = {"calls": 0, "prompt": 0, "completion": 0, "total": 0, "latency": 0.0}
     for k, v in sorted(buckets.items()):
         label = " / ".join(map(str, k))
-        print(f"{label:<{keyw}}  {v['calls']:>6}  {v['prompt']:>9}  {v['completion']:>9}  {v['total']:>9}")
+        print(
+            f"{label:<{keyw}}  {v['calls']:>6}  {v['prompt']:>9}  "
+            f"{v['completion']:>9}  {v['total']:>9}  {v['latency']:>8.1f}"
+        )
         for f in tot:
             tot[f] += v[f]
-    print("-" * (keyw + 40))
-    print(f"{'TOTAL':<{keyw}}  {tot['calls']:>6}  {tot['prompt']:>9}  {tot['completion']:>9}  {tot['total']:>9}")
+    print("-" * (keyw + 51))
+    print(
+        f"{'TOTAL':<{keyw}}  {tot['calls']:>6}  {tot['prompt']:>9}  "
+        f"{tot['completion']:>9}  {tot['total']:>9}  {tot['latency']:>8.1f}"
+    )
     return 0
 
 

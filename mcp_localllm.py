@@ -50,7 +50,7 @@ TOP_K = int(_TOP_K_RAW) if _TOP_K_RAW else None
 USAGE_LOG = (
     os.environ.get("LOCALLLM_USAGE_LOG")
     or os.environ.get("QWEN_USAGE_LOG")
-    or os.path.join(os.path.dirname(os.path.abspath(__file__)), "usage.log")
+    or os.path.join(os.path.dirname(os.path.abspath(__file__)), "usage_localllm.log")
 )
 
 mcp = FastMCP("localllm")
@@ -110,6 +110,7 @@ def _log_usage(tool: str, model: str, system: str, user: str, resp: dict, latenc
             total = (prompt_tokens or 0) + (completion_tokens or 0)
         rec = {
             "ts": datetime.now(timezone.utc).isoformat(),
+            "source": "localllm",
             "tool": tool,
             "model": model,
             "input_chars": len(system) + len(user),

@@ -1,2 +1,3 @@
 __pycache__/
-usage.log
+usage_localllm.log
+usage_gemini.log

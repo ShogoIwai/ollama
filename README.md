@@ -226,8 +226,10 @@ marker to fall back to the `qwen3.6:35b-a3b-mtp-q4_K_M` default.
 | `source_local` / `.csh`    | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local                                                                     |
 | `source_cloud` / `.csh`    | CLOUD mode: unset those env vars and `unalias claude`/`codex`                                                                                        |
 | `mcp_localllm.py`            | MCP server exposing the active local model as `ask_local` / `ask_local_code` tools (local-model debugging)                                           |
-| `usage_report.py`            | Aggregate local LLM token usage from `usage.log`                                                                                                       |
-| `usage.log`                  | JSONL usage records written by `mcp_localllm.py` (gitignored)                                                                                          |
+| `mcp_gemini.py`              | MCP server giving local runs an external-access path via Gemini (`ask_gemini_web` / `ask_gemini`), backed by the Antigravity CLI (`agy`) — no API key |
+| `usage_report.py`            | Aggregate local LLM **and** Gemini usage from `usage_localllm.log` + `usage_gemini.log`                                                                |
+| `usage_localllm.log`         | JSONL usage records written by `mcp_localllm.py` (gitignored)                                                                                          |
+| `usage_gemini.log`           | JSONL usage records written by `mcp_gemini.py` (gitignored)                                                                                            |
 
 ---
 
@@ -795,13 +797,53 @@ Verify in Claude Code with `/mcp` (expect `localllm` connected) and call
 
 ### Token usage logging
 
-Each call appends a JSONL record (timestamp, tool, model, token counts,
-latency) to `usage.log` (override with `LOCALLLM_USAGE_LOG`). Summarize with:
+Each `mcp_localllm.py` call appends a JSONL record (timestamp, source, tool,
+model, token counts, latency) to `usage_localllm.log` (override with
+`LOCALLLM_USAGE_LOG`); `mcp_gemini.py` writes the same schema to
+`usage_gemini.log` (override with `AGY_USAGE_LOG`). Gemini rows have null token
+fields — `agy` does not report token counts — so token columns reflect
+local-LLM usage only, while call/latency columns cover both. `usage_report.py`
+reads both logs at once:
 
 ```bash
-python3 ollama/usage_report.py            # daily / per-tool table
-python3 ollama/usage_report.py --by tool  # group by tool
-python3 ollama/usage_report.py --json     # machine-readable totals
+python3 ollama/usage_report.py                  # both logs, source / tool table
+python3 ollama/usage_report.py --by source      # group by source (localllm vs gemini)
+python3 ollama/usage_report.py --by tool        # group by tool
+python3 ollama/usage_report.py --by day         # group by day
+python3 ollama/usage_report.py --json           # machine-readable totals
+python3 ollama/usage_report.py usage_gemini.log # one explicit file
+```
+
+### Gemini external-access bridge (`mcp_gemini.py`)
+
+Local models are weak at web access / RAG, so outward lookups are delegated to
+Gemini instead of building a crawler + vector store. `mcp_gemini.py` is a stdio
+MCP server (stdlib + FastMCP, same shape as `mcp_localllm.py`) that shells out
+to the **Antigravity CLI** (`agy -p`):
+
+| Tool                  | Use for                                                                 |
+| --------------------- | ----------------------------------------------------------------------- |
+| `ask_gemini_web(query)` | External info: current facts, docs, release notes — Gemini web search, cited |
+| `ask_gemini(prompt)`    | Reasoning / summarization / drafting without forced web search          |
+
+- **No API key.** Reuses the OAuth credentials under `~/.gemini` that `agy`
+  already holds (works on enterprise accounts where an API key cannot be minted).
+- **`stdin=DEVNULL` is required** when shelling out — otherwise `agy` inherits
+  the MCP host's JSON-RPC stdin and hangs. (Already handled in the server.)
+- **Model is pinned to a Gemini model** (`Gemini 3.5 Flash (Low)` — low effort
+  to stay under the tight token limit). `agy`'s own default is off-brand here
+  (`Claude Opus 4.6 (Thinking)`). Override with `AGY_MODEL` (see `agy models`);
+  set `AGY_MODEL=` empty to fall back to `agy`'s configured default.
+- Other env: `AGY_BIN` (binary path), `AGY_WORKDIR` (cwd, default `~/rep`),
+  `AGY_TIMEOUT` (wall-clock cap, default 300s).
+- Latency: `agy` cold-starts its language server each call, so expect
+  ~7 s (`ask_gemini`) to ~20–30 s (`ask_gemini_web`).
+
+Register alongside `localllm`:
+
+```bash
+claude mcp add -s user gemini python3 $REP/ollama/mcp_gemini.py
+codex mcp add gemini -- python3 $REP/ollama/mcp_gemini.py
 ```
 
 ### Token limits and sampling
