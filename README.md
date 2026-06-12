@@ -1038,10 +1038,24 @@ local-diff-based options belong here:
 | Option                               | GitHub | What it reviews                                                                                                                                         |
 | ------------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **stop-review-gate** (above)   | none   | Each turn's edit diff → cloud Codex ALLOW/BLOCK. The default; always on, no extra install                                                              |
+| **`/codex:review`**          | none   | Runs Codex's built-in reviewer against local git state (`git diff`); cloud-side evaluation without GitHub — manual review preferred over per-turn auto-call (user-triggered, billed). Reviews the repo at its **cwd**, so it must target a real working tree (see caveat below) |
 | **`/code-review ultra`**     | none   | No-arg form bundles the local branch for a cloud multi-agent review; needs no GitHub remote (user-triggered, billed — cannot be launched by the agent) |
 | **direct `git diff` review** | none   | Hand `git diff main...HEAD` (or any range) straight to the cloud model for an inline review — fully independent of any remote                        |
 
-All three run the review on the cloud model, so they keep the same barter — closed,
+These all run the review on the cloud model, so they keep the same barter — closed,
 cheap local work; cloud-side accuracy check on the result — **without** depending on
 GitHub. They are **additive** to the stop-review-gate, not a replacement for the
 rg-cleanup `Stop` hook above (still needed regardless of who runs the review).
+
+> **`/codex:review` targets the repo at its cwd.** `codex-companion.mjs review`
+> reviews the git working tree of its working directory, and the slash-command flow
+> contains no `cd`. The launch root (`<workspace-root>`, e.g. `/mnt/hdd/edgeai/rep`)
+> is **not** a git repo — each subdir (`ollama/`, `eai_design/`, …) is its own clone —
+> so running the review from the root fails with `fatal: not a git repository`. Pass
+> the target repository explicitly with `--cwd <repo>` (or `-C <repo>`), resolved by
+> walking up from the file under review to its enclosing `.git`; e.g. reviewing
+> `ollama/README.md` →
+> `node <…>/codex-companion.mjs review --cwd <workspace-root>/ollama`. This mirrors
+> the "operate at the second level or deeper" rule in `~/.claude/CLAUDE.md`
+> (*Repository Scope for Git Operations* → *`/codex:review` corollary*), where the
+> auto-targeting behaviour is the canonical source.
