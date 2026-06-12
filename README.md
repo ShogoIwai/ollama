@@ -755,6 +755,13 @@ Gemini instead of building a crawler + vector store. `mcp_gemini.py` is a stdio
 MCP server (stdlib + FastMCP, same shape as `mcp_localllm.py`) that shells out
 to the **Antigravity CLI** (`agy -p`):
 
+> **When to use (both cloud and local):** whenever an answer depends on facts
+> outside the agent's own knowledge — anything post-cutoff, any
+> "latest"/release/version/pricing claim, or any external fact the agent is not
+> certain of — query `gemini` *before* answering, rather than answering from
+> memory or guessing. `ask_gemini_web` for web-grounded lookups, `ask_gemini`
+> otherwise. This rule is mirrored in the global `CLAUDE.md` / `AGENTS.md`.
+
 | Tool                  | Use for                                                                 |
 | --------------------- | ----------------------------------------------------------------------- |
 | `ask_gemini_web(query)` | External info: current facts, docs, release notes — Gemini web search, cited |
