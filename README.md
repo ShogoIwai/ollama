@@ -220,6 +220,7 @@ marker to fall back to the `qwen3.6:35b-a3b-mtp-q4_K_M` default.
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `up_version.csh`             | Reinstall Ollama to the latest release, stop/disable the systemd unit, and print the version (manual update helper)                                      |
 | `start_ollama_qwen36_35b.sh` | Thin launcher for `qwen3.6:35b-a3b-mtp-q4_K_M` (default; Qwen3.6-35B-A3B MoE, ~3B active, thinking-capable; override `MODEL=qwen3.6:35b` for non-MTP) |
+| `start_ollama_qwen36_uncensored.sh` | Thin launcher for `joe-speedboat/Qwen3.6-35B-A3B-Uncensored-Text:Q4_K_M` (optional; abliterated **text-only** derivative of the default — same ~3B-active MoE, drops vision + refusal layer; ~117 tok/s, Codex profile `ollama-qwen36-uncensored`) |
 | `start_ollama_lfm25_wsl.sh`  | Thin launcher for `LiquidAI/lfm2.5-1.2b-instruct:q4_k_m` on a WSL / GPU-less host (CPU; default WSL model); **tool-capable** (structured `tool_calls`), so it can drive direct connect (see [WSL / low-memory (CPU)](#wsl--low-memory-cpu)) |
 | `_ollama_serve_common.sh`    | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in `~/.ollama_active_model`                 |
 | `source_local` / `.csh`    | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local                                                                     |
@@ -261,6 +262,7 @@ ollama run qwen3.6:35b-a3b-mtp-q4_K_M      # optional REPL smoke test
 
 ```bash
 ./start_ollama_qwen36_35b.sh         # qwen3.6:35b-a3b-mtp-q4_K_M (default; override MODEL=qwen3.6:35b for non-MTP)
+./start_ollama_qwen36_uncensored.sh  # joe-speedboat/Qwen3.6-35B-A3B-Uncensored-Text:Q4_K_M (optional; abliterated text-only, no vision)
 ./start_ollama_lfm25_wsl.sh          # LiquidAI/lfm2.5-1.2b-instruct on WSL / GPU-less CPU host (tool-capable)
 ```
 
@@ -362,6 +364,30 @@ loop has not yet been exercised end-to-end here.
 > and capacity at once, so the 27b was **not adopted** and its weights/scaffolding
 > were removed. Re-pull only if a specifically dense-27B behaviour is needed.
 
+**Qwen3.6-35B-A3B Uncensored-Text (`joe-speedboat/Qwen3.6-35B-A3B-Uncensored-Text:Q4_K_M`,
+measured).** An **abliterated, text-only** community derivative of the default
+(same `qwen35moe` architecture, 34.7B total / ~3B active, native 256K context) —
+it drops the vision tower and the model's content-refusal/judgement layer. **Not
+the default** (the official Apache-2.0 build is); kept as an **optional launcher**.
+The reason it is kept is **speed**: removing the refusal/judgement machinery (and
+the unused vision tower) makes it measurably faster than the default at the same
+~3B-active MoE quality (~117 vs ~87 tok/s here) — not a content motivation.
+**Measured on this host (RTX 3090 24GB)** with the same wrapper settings
+(`OLLAMA_KV_CACHE_TYPE=q8_0` + flash attention): **100% GPU, 22 GB resident (21.7 GB
+VRAM used), 96000 context, ~117 tok/s generation** (prompt ~124 tok/s). Being
+text-only it is ~2.2 GB lighter in real VRAM than the default (21.7 vs 23.9 GB),
+so it runs with ~2.9 GB headroom — more margin against KV-cache spill — and a bit
+faster. `/api/show` reports capabilities `['completion','tools','thinking']`
+(**no `vision`**), and a `/api/chat` tool-call smoke test returned a **structured
+`tool_calls` block with empty `content`** (`think:false`, no thinking leak); **both
+Claude Code and Codex were confirmed running on it via direct connect**. Caveats: it is a **non-official
+abliterated derivative** (weaker provenance/reproducibility than the Apache-2.0
+default), and its bundled sampling defaults are aggressive
+(`temperature=1, top_k=20, top_p=0.95, presence_penalty=1.5`) — the MCP path
+overrides these via `LOCALLLM_TEMPERATURE=0.2`, but direct connect inherits them.
+Launch with `./start_ollama_qwen36_uncensored.sh` (Codex profile
+`ollama-qwen36-uncensored`).
+
 **Sizing a new model (rough estimate).** Before pulling, estimate weight memory as:
 
 ```
@@ -393,6 +419,7 @@ default of **96000**, **lightly loaded** (KV cache mostly empty — see caveat b
 | Model                          | Context | Processor | VRAM (SIZE) | Throughput |
 | ------------------------------ | ------- | --------- | ----------- | ---------- |
 | `qwen3.6:35b-a3b-mtp-q4_K_M` | 96000   | 100% GPU  | 22 GB (light load; 23.9/24 GB used) | ~87 tok/s |
+| `joe-speedboat/Qwen3.6-35B-A3B-Uncensored-Text:Q4_K_M` | 96000 | 100% GPU | 22 GB (light load; 21.7/24 GB used, text-only) | ~117 tok/s |
 
 > The reported SIZE reflects a near-empty KV cache because Ollama allocates KV
 > lazily — at warm-up little of the 96K is in use. With only ~650 MiB VRAM headroom
@@ -550,7 +577,8 @@ no manual edits. If the marker is missing it falls back to
 explicit `setenv`/`export LOCALLLM_MODEL` before sourcing always wins.
 
 `LOCALLLM_CODEX_PROFILE`, when unset, is **derived from `LOCALLLM_MODEL`** via a
-`switch` in `source_local.csh`: `qwen3.6:*` ⇒ `ollama-qwen36-35b`, everything else ⇒
+`switch` in `source_local.csh`: `joe-speedboat/Qwen3.6-35B-A3B-Uncensored-Text:*` ⇒
+`ollama-qwen36-uncensored`, `qwen3.6:*` ⇒ `ollama-qwen36-35b`, everything else ⇒
 `ollama-local`. (Each model gets its own explicit case, so an unlisted variant
 defaults to `ollama-local`.) Add one
 `case` + a matching overlay file per new local model.
@@ -615,8 +643,9 @@ claude                             # alias cleared → cloud default
 `source_cloud` clears it so `codex` is cloud again. You can still invoke either
 explicitly (`codex --profile ollama-local` / `codex`) regardless of which file is
 sourced. By default `LOCALLLM_CODEX_PROFILE` is **auto-derived from the detected
-`LOCALLLM_MODEL`** (see the auto-detection note above): `qwen3.6:*` ⇒
-`ollama-qwen36-35b`, otherwise ⇒ `ollama-local` (one
+`LOCALLLM_MODEL`** (see the auto-detection note above):
+`joe-speedboat/Qwen3.6-35B-A3B-Uncensored-Text:*` ⇒ `ollama-qwen36-uncensored`,
+`qwen3.6:*` ⇒ `ollama-qwen36-35b`, otherwise ⇒ `ollama-local` (one
 explicit case per model). To force a specific profile, set
 `LOCALLLM_CODEX_PROFILE` before sourcing — Codex picks the model per profile
 (overlay file), not per env var, so each profile needs its own overlay file
@@ -664,10 +693,22 @@ run into Ollama's 96K server-side limit. Keep `model_context_window` equal to
 headroom for the next prompt, tool results, and model output. The local profiles
 use **86K** as the first-pass trigger for a **96K** Ollama daemon.
 
+A second overlay reuses the same provider for the uncensored text-only variant
+(only the `model` line differs):
+
+```toml
+# ~/.codex/ollama-qwen36-uncensored.config.toml
+model = "joe-speedboat/Qwen3.6-35B-A3B-Uncensored-Text:Q4_K_M"
+model_provider = "ollama-local"
+model_context_window = 96000
+model_auto_compact_token_limit = 86000
+```
+
 ```bash
-codex --profile ollama-local       # local qwen3.6:35b-a3b (loads ollama-local.config.toml)
-codex --profile ollama-qwen36-35b  # local qwen3.6:35b-a3b (loads ollama-qwen36-35b.config.toml)
-codex                              # cloud (default profile)
+codex --profile ollama-local             # local qwen3.6:35b-a3b (loads ollama-local.config.toml)
+codex --profile ollama-qwen36-35b        # local qwen3.6:35b-a3b (loads ollama-qwen36-35b.config.toml)
+codex --profile ollama-qwen36-uncensored # local Uncensored-Text (loads ollama-qwen36-uncensored.config.toml)
+codex                                    # cloud (default profile)
 ```
 
 ---
