@@ -71,8 +71,8 @@ endif
 # model unless explicitly set. Add a case + overlay file per new local model.
 if (! $?LOCALLLM_CODEX_PROFILE) then
     switch ("$LOCALLLM_MODEL")
-        case joe-speedboat/Qwen3.6-35B-A3B-Uncensored-Text:*:
-            setenv LOCALLLM_CODEX_PROFILE "ollama-qwen36-uncensored"
+        case fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:*:
+            setenv LOCALLLM_CODEX_PROFILE "ollama-qwen36-uncensored-vision"
             breaksw
         case qwen3.6:*:
             setenv LOCALLLM_CODEX_PROFILE "ollama-qwen36-35b"
