@@ -666,6 +666,13 @@ explicit case per model). To force a specific profile, set
 (e.g. `ollama-qwen36-35b` ⇒ `~/.codex/ollama-qwen36-35b.config.toml` with
 `model = "qwen3.6:35b-a3b-mtp-q4_K_M"`).
 
+> **Resume picker caveat:** cloud (default) and local (separate profile) Codex
+> runs do **not** share the same `/resume` list. Sessions started with the cloud
+> default provider and sessions started with a local profile (`ollama-local`
+> etc.) appear in separate resume listings, and `codex resume --all` does not
+> merge them either. In current Codex there is no way to make a local-profile run
+> show up in the cloud-default resume list (or vice versa).
+
 The profile mechanism is independent of the env files. Since Codex
 v0.136 the profile **must not** live in `config.toml` as a `[profiles.<name>]`
 table (or a `profile = "..."` selector) — Codex rejects it with a "legacy
