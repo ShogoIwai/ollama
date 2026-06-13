@@ -1,3 +1,5 @@
+Code: generation, refactoring, unit-test skeletons, stubs, code translation
+
 # Local LLM Workflow — Ollama + Claude Code + Codex
 
 `ollama/` provides a local LLM environment for Claude Code and Codex,
@@ -225,10 +227,11 @@ marker to fall back to the `qwen3.6:35b-a3b-mtp-q4_K_M` default.
 | `_ollama_serve_common.sh`                  | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in `~/.ollama_active_model`                                                                                                                     |
 | `source_local` / `.csh`                  | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local                                                                                                                                                                         |
 | `source_cloud` / `.csh`                  | CLOUD mode: unset those env vars and `unalias claude`/`codex`                                                                                                                                                                                            |
+| `mcp_codex.py`                             | MCP server that forks a task from Claude Code into a one-shot Codex (GPT-5.5) run pinned to a single repo as its sandbox (`fork_to_codex` / `ask_codex`) — see [Codex task fork via MCP](#codex-task-fork-via-mcp-each-repo-as-its-own-sandbox)            |
 | `mcp_gemini.py`                            | MCP server giving local runs an external-access path via Gemini (`ask_gemini_web` / `ask_gemini`), backed by the Antigravity CLI (`agy`) — no API key                                                                                                 |
 | `mcp_localllm.py`                          | MCP server exposing the active local model as `ask_local` / `ask_local_code` tools (**deprecated**; register on demand for local-model debugging only)                                                                                             |
-| `mcp_codex.py`                             | MCP server that forks a task from Claude Code into a one-shot Codex (GPT-5.5) run pinned to a single repo as its sandbox (`fork_to_codex` / `ask_codex`) — see [Codex task fork via MCP](#codex-task-fork-via-mcp-each-repo-as-its-own-sandbox)            |
-| `usage_report.py`                          | Aggregate local LLM**and** Gemini usage from `usage_localllm.log` + `usage_gemini.log`                                                                                                                                                             |
+| `usage_report.py`                          | Aggregate local LLM, Gemini**and** Codex usage from `usage_localllm.log` + `usage_gemini.log` + `usage_codex.log`                                                                                                                                |
+| `usage_codex.log`                          | JSONL usage records written by `mcp_codex.py` (gitignored)                                                                                                                                                                                                 |
 | `usage_gemini.log`                         | JSONL usage records written by `mcp_gemini.py` (gitignored)                                                                                                                                                                                                |
 | `usage_localllm.log`                       | JSONL usage records written by `mcp_localllm.py` (gitignored)                                                                                                                                                                                              |
 
@@ -1022,6 +1025,13 @@ Overrides: `OLLAMA_HOST` (default `http://localhost:11434`), `LOCALLLM_MODEL_ID`
 > blocks accumulate in history there is the client/Ollama template's
 > responsibility and is **not handled or verified** in this environment.)
 
+### Available tools
+
+| Tool                                 | Use for                                                                      |
+| ------------------------------------ | ---------------------------------------------------------------------------- |
+| `ask_local_code(language, prompt)` | Code: generation, refactoring, unit-test skeletons, stubs, code translation  |
+| `ask_local(prompt)`                | Prose: Q&A, explanations, summaries, translation, comment/docstring rewrites |
+
 ### Token limits and sampling
 
 | Limit                | Value                                         | Source                                                        |
@@ -1050,14 +1060,15 @@ exceeds the 2,048-token output limit.
 Each `mcp_localllm.py` call appends a JSONL record (timestamp, source, tool,
 model, token counts, latency) to `usage_localllm.log` (override with
 `LOCALLLM_USAGE_LOG`); `mcp_gemini.py` writes the same schema to
-`usage_gemini.log` (override with `AGY_USAGE_LOG`). Gemini rows have null token
-fields — `agy` does not report token counts — so token columns reflect
-local-LLM usage only, while call/latency columns cover both. `usage_report.py`
-reads both logs at once:
+`usage_gemini.log` (override with `AGY_USAGE_LOG`); `mcp_codex.py` writes it to
+`usage_codex.log` (override with `CODEX_FORK_USAGE_LOG`). Gemini and Codex rows
+have null token fields — neither `agy` nor `codex exec` reports token counts —
+so token columns reflect local-LLM usage only, while call/latency columns cover
+all three. `usage_report.py` reads all three logs at once:
 
 ```bash
-python3 ollama/usage_report.py                  # both logs, source / tool table
-python3 ollama/usage_report.py --by source      # group by source (localllm vs gemini)
+python3 ollama/usage_report.py                  # all three logs, source / tool table
+python3 ollama/usage_report.py --by source      # group by source (localllm / gemini / codex)
 python3 ollama/usage_report.py --by tool        # group by tool
 python3 ollama/usage_report.py --by day         # group by day
 python3 ollama/usage_report.py --json           # machine-readable totals
