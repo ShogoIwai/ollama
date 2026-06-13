@@ -216,20 +216,21 @@ marker to fall back to the `qwen3.6:35b-a3b-mtp-q4_K_M` default.
 
 ## Directory Contents
 
-| File                           | Role                                                                                                                                                     |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `up_version.csh`             | Reinstall Ollama to the latest release, stop/disable the systemd unit, and print the version (manual update helper)                                      |
-| `start_ollama_qwen36_35b.sh` | Thin launcher for `qwen3.6:35b-a3b-mtp-q4_K_M` (default; Qwen3.6-35B-A3B MoE, ~3B active, thinking-capable; override `MODEL=qwen3.6:35b` for non-MTP) |
+| File                                         | Role                                                                                                                                                                                                                                                         |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `up_version.csh`                           | Reinstall Ollama to the latest release, stop/disable the systemd unit, and print the version (manual update helper)                                                                                                                                          |
+| `start_ollama_qwen36_35b.sh`               | Thin launcher for `qwen3.6:35b-a3b-mtp-q4_K_M` (default; Qwen3.6-35B-A3B MoE, ~3B active, thinking-capable; override `MODEL=qwen3.6:35b` for non-MTP)                                                                                                    |
 | `start_ollama_qwen36_uncensored_vision.sh` | Thin launcher for `fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:Q4` (optional; uncensored derivative of the default that **keeps vision** — handles image/PDF input; ~125 tok/s, Codex profile `ollama-qwen36-uncensored-vision`) |
-| `start_ollama_lfm25_wsl.sh`  | Thin launcher for `LiquidAI/lfm2.5-1.2b-instruct:q4_k_m` on a WSL / GPU-less host (CPU; default WSL model); **tool-capable** (structured `tool_calls`), so it can drive direct connect (see [WSL / low-memory (CPU)](#wsl--low-memory-cpu)) |
-| `_ollama_serve_common.sh`    | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in `~/.ollama_active_model`                 |
-| `source_local` / `.csh`    | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local                                                                     |
-| `source_cloud` / `.csh`    | CLOUD mode: unset those env vars and `unalias claude`/`codex`                                                                                        |
-| `mcp_gemini.py`              | MCP server giving local runs an external-access path via Gemini (`ask_gemini_web` / `ask_gemini`), backed by the Antigravity CLI (`agy`) — no API key |
-| `mcp_localllm.py`            | MCP server exposing the active local model as `ask_local` / `ask_local_code` tools (**deprecated**; register on demand for local-model debugging only) |
-| `usage_report.py`            | Aggregate local LLM **and** Gemini usage from `usage_localllm.log` + `usage_gemini.log`                                                                |
-| `usage_gemini.log`           | JSONL usage records written by `mcp_gemini.py` (gitignored)                                                                                            |
-| `usage_localllm.log`         | JSONL usage records written by `mcp_localllm.py` (gitignored)                                                                                          |
+| `start_ollama_lfm25_wsl.sh`                | Thin launcher for `LiquidAI/lfm2.5-1.2b-instruct:q4_k_m` on a WSL / GPU-less host (CPU; default WSL model); **tool-capable** (structured `tool_calls`), so it can drive direct connect (see [WSL / low-memory (CPU)](#wsl--low-memory-cpu))           |
+| `_ollama_serve_common.sh`                  | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in `~/.ollama_active_model`                                                                                                                     |
+| `source_local` / `.csh`                  | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local                                                                                                                                                                         |
+| `source_cloud` / `.csh`                  | CLOUD mode: unset those env vars and `unalias claude`/`codex`                                                                                                                                                                                            |
+| `mcp_gemini.py`                            | MCP server giving local runs an external-access path via Gemini (`ask_gemini_web` / `ask_gemini`), backed by the Antigravity CLI (`agy`) — no API key                                                                                                 |
+| `mcp_localllm.py`                          | MCP server exposing the active local model as `ask_local` / `ask_local_code` tools (**deprecated**; register on demand for local-model debugging only)                                                                                             |
+| `mcp_codex.py`                             | MCP server that forks a task from Claude Code into a one-shot Codex (GPT-5.5) run pinned to a single repo as its sandbox (`fork_to_codex` / `ask_codex`) — see [Codex task fork via MCP](#codex-task-fork-via-mcp-each-repo-as-its-own-sandbox)            |
+| `usage_report.py`                          | Aggregate local LLM**and** Gemini usage from `usage_localllm.log` + `usage_gemini.log`                                                                                                                                                             |
+| `usage_gemini.log`                         | JSONL usage records written by `mcp_gemini.py` (gitignored)                                                                                                                                                                                                |
+| `usage_localllm.log`                       | JSONL usage records written by `mcp_localllm.py` (gitignored)                                                                                                                                                                                              |
 
 ---
 
@@ -429,10 +430,10 @@ processor split from `ollama ps`, throughput from `/api/generate`
 (`eval_count` ÷ `eval_duration`). Measured at the current wrapper
 default of **96000**, **lightly loaded** (KV cache mostly empty — see caveat below):
 
-| Model                          | Context | Processor | VRAM (SIZE) | Throughput |
-| ------------------------------ | ------- | --------- | ----------- | ---------- |
-| `qwen3.6:35b-a3b-mtp-q4_K_M` | 96000   | 100% GPU  | 22 GB (light load; 23.9/24 GB used) | ~87 tok/s |
-| `fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:Q4` | 96000 | 100% GPU | 22 GB (vision-capable) | ~125 tok/s |
+| Model                                                               | Context | Processor | VRAM (SIZE)                         | Throughput |
+| ------------------------------------------------------------------- | ------- | --------- | ----------------------------------- | ---------- |
+| `qwen3.6:35b-a3b-mtp-q4_K_M`                                      | 96000   | 100% GPU  | 22 GB (light load; 23.9/24 GB used) | ~87 tok/s  |
+| `fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:Q4` | 96000   | 100% GPU  | 22 GB (vision-capable)              | ~125 tok/s |
 
 > The reported SIZE reflects a near-empty KV cache because Ollama allocates KV
 > lazily — at warm-up little of the 96K is in use. With only ~650 MiB VRAM headroom
@@ -475,9 +476,9 @@ capabilities `['tools','thinking','completion']`; **~0.9 GB resident, 100% CPU,
 > (gemma3:1b/4b, gemma2:2b, codegemma:2b) work via the MCP path but report no
 > `tools` capability, so they cannot drive direct connect — hence the switch.
 
-| Model / tag                                  | Params | Resident (Q4)   | CPU tok/s | tool_calls | Use for                        |
-| -------------------------------------------- | ------ | --------------- | --------- | ---------- | ------------------------------ |
-| **`LiquidAI/lfm2.5-1.2b-instruct:q4_k_m`** | 1.17B  | **~0.9 GB**     | **~40**   | structured | **WSL direct-connect tool use**, chat, MCP debug |
+| Model / tag                                        | Params | Resident (Q4)     | CPU tok/s     | tool_calls | Use for                                                |
+| -------------------------------------------------- | ------ | ----------------- | ------------- | ---------- | ------------------------------------------------------ |
+| **`LiquidAI/lfm2.5-1.2b-instruct:q4_k_m`** | 1.17B  | **~0.9 GB** | **~40** | structured | **WSL direct-connect tool use**, chat, MCP debug |
 
 > **Direct connect is enabled but limited by model size.** Both clients launch
 > and Claude Code accepts a prompt, but a 1.2B model under Claude Code's ~23K-token
@@ -535,10 +536,10 @@ The env files toggle **Claude Code only** (`ANTHROPIC_*`). They deliberately
 do **not** touch any `OPENAI_*` variable — Codex's cloud OpenAI client reads
 those too, so exporting them would silently redirect Codex to the local server.
 
-| File                        | Mode          | Effect                                                                                                                                                                                           |
-| --------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| File                        | Mode          | Effect                                                                                                                                                                                                                                                                                                               |
+| --------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `source_local` / `.csh` | LOCAL(Ollama) | export `ANTHROPIC_BASE_URL=:11434`, `ANTHROPIC_AUTH_TOKEN=ollama`, `ANTHROPIC_API_KEY=""`, `OLLAMA_HOST`, `DISABLE_COMPACT=1`, `CLAUDE_CODE_MAX_CONTEXT_TOKENS=96000` (see [Context window](#context-window-in-local-mode)); alias `claude`/`codex` to local (see [Aliases](#aliases-set-by-source_local)) |
-| `source_cloud` / `.csh` | CLOUD         | unset the above (tcsh `unsetenv`) and `unalias claude` / `codex`; re-set `ANTHROPIC_API_KEY` if you authenticate by key                                                                  |
+| `source_cloud` / `.csh` | CLOUD         | unset the above (tcsh `unsetenv`) and `unalias claude` / `codex`; re-set `ANTHROPIC_API_KEY` if you authenticate by key                                                                                                                                                                                      |
 
 ### Context window in LOCAL mode
 
@@ -575,10 +576,10 @@ each alias selects is **no longer hard-coded** — it is **auto-detected from th
 running launcher** and can still be overridden by two env vars you set **before**
 sourcing:
 
-| Env var (override before sourcing) | Default                              | Controls                                          |
-| ---------------------------------- | ------------------------------------ | ------------------------------------------------- |
+| Env var (override before sourcing) | Default                                              | Controls                                          |
+| ---------------------------------- | ---------------------------------------------------- | ------------------------------------------------- |
 | `LOCALLLM_MODEL`                 | auto (marker → else `qwen3.6:35b-a3b-mtp-q4_K_M`) | the model tag pinned by the `claude` alias      |
-| `LOCALLLM_CODEX_PROFILE`         | derived from `LOCALLLM_MODEL`      | the Codex profile selected by the `codex` alias |
+| `LOCALLLM_CODEX_PROFILE`         | derived from `LOCALLLM_MODEL`                      | the Codex profile selected by the `codex` alias |
 
 **Auto-detection (marker file).** Each start script records the launched model
 tag in `~/.ollama_active_model` (written by `_ollama_serve_common.sh` as soon as
@@ -736,8 +737,14 @@ codex                                    # cloud (default profile)
 
 ## MCP Integration
 
-> **Scope:** two stdio MCP servers ship here, with very different standing:
+> **Scope:** three stdio MCP servers ship here, with very different standing:
 >
+> - **`codex` (`mcp_codex.py`) — task-fork bridge.** Forks a self-contained task
+>   from Claude Code into a one-shot Codex (GPT-5.5) run pinned to a single repo
+>   as its sandbox (`fork_to_codex` / `ask_codex`). This is the
+>   [accuracy/cross-model review path](#codex-task-fork-via-mcp-each-repo-as-its-own-sandbox)
+>   and the way Codex sidesteps both the multi-repo launch root and its own
+>   cloud/local session-sharing limits.
 > - **`gemini` (`mcp_gemini.py`) — the primary, always-registered MCP.** It is
 >   the external-access bridge (`ask_gemini_web` / `ask_gemini`). In **local**
 >   mode it is effectively the only outward path (local models are weak at
@@ -750,76 +757,11 @@ codex                                    # cloud (default profile)
 >   only as an optional debugging path for the loaded Ollama model when you
 >   explicitly want to exercise it — it is **not registered by default**.
 >
-> Neither server is a token-saving delegation layer; the cloud-vs-local decision
-> is made up front by static switching (see
+> None of these is a token-saving subtask-delegation layer; the cloud-vs-local
+> decision is made up front by static switching (see
 > [cloud / local static switching](#cloud--local-static-switching)), per whole
-> task, not per subtask.
-
-### Gemini external-access bridge (`mcp_gemini.py`) — primary
-
-Local models are weak at web access / RAG, so outward lookups are delegated to
-Gemini instead of building a crawler + vector store. `mcp_gemini.py` is a stdio
-MCP server (stdlib + FastMCP, same shape as `mcp_localllm.py`) that shells out
-to the **Antigravity CLI** (`agy -p`):
-
-> **When to use (both cloud and local):** whenever an answer depends on facts
-> outside the agent's own knowledge — anything post-cutoff, any
-> "latest"/release/version/pricing claim, or any external fact the agent is not
-> certain of — query `gemini` *before* answering, rather than answering from
-> memory or guessing. `ask_gemini_web` for web-grounded lookups, `ask_gemini`
-> otherwise. This rule is mirrored in the global `CLAUDE.md` / `AGENTS.md`.
-
-| Tool                  | Use for                                                                 |
-| --------------------- | ----------------------------------------------------------------------- |
-| `ask_gemini_web(query)` | External info: current facts, docs, release notes — Gemini web search, cited |
-| `ask_gemini(prompt)`    | Reasoning / summarization / drafting without forced web search          |
-
-- **No API key.** Reuses the OAuth credentials under `~/.gemini` that `agy`
-  already holds (works on enterprise accounts where an API key cannot be minted).
-- **`stdin=DEVNULL` is required** when shelling out — otherwise `agy` inherits
-  the MCP host's JSON-RPC stdin and hangs. (Already handled in the server.)
-- **Model is pinned to a Gemini model** (`Gemini 3.5 Flash (Low)` — low effort
-  to stay under the tight token limit). `agy`'s own default is off-brand here
-  (`Claude Opus 4.6 (Thinking)`). Override with `AGY_MODEL` (see `agy models`);
-  set `AGY_MODEL=` empty to fall back to `agy`'s configured default.
-- Other env: `AGY_BIN` (binary path), `AGY_WORKDIR` (cwd, default `~/rep`),
-  `AGY_TIMEOUT` (wall-clock cap, default 300s).
-- Latency: `agy` cold-starts its language server each call, so expect
-  ~7 s (`ask_gemini`) to ~20–30 s (`ask_gemini_web`).
-
-Register globally (this is the primary MCP — keep it on in both cloud and local
-modes):
-
-```bash
-claude mcp add -s user gemini python3 $REP/ollama/mcp_gemini.py
-codex mcp add gemini -- python3 $REP/ollama/mcp_gemini.py
-```
-
-### Local model bridge (`mcp_localllm.py`) — deprecated, on demand
-
-`mcp_localllm.py` exposes the **active local model** as two stdio MCP tools. It
-is model-agnostic: it auto-detects whichever model Ollama currently has loaded
-(`/api/ps`, falling back to the first installed model from `/api/tags`) and
-adapts to that model's capabilities (`/api/show`). For **thinking-capable**
-models (e.g. `qwen3.6:35b-a3b`) it sets `think: false` on the native `/api/chat` call so
-the answer lands in `content` instead of being consumed by chain-of-thought
-under the output-token budget; non-thinking models are called plainly. Only the
-Python standard library is used (no OpenAI SDK).
-
-Overrides: `OLLAMA_HOST` (default `http://localhost:11434`), `LOCALLLM_MODEL_ID`
-(pin a specific model instead of auto-detecting), `LOCALLLM_MAX_TOKENS`
-(default `2048`), `LOCALLLM_TEMPERATURE` (default `0.2`), `LOCALLLM_TOP_P` /
-`LOCALLLM_TOP_K` (unset → Ollama defaults; forwarded only when set). Legacy
-`QWEN_MODEL_ID` / `QWEN_USAGE_LOG` are still honored for backward compatibility.
-
-> **Multi-turn / thinking accumulation:** the MCP tools are **single-shot** —
-> each `ask_local` / `ask_local_code` call sends only a fresh system+user pair
-> with no prior turns, and thinking-capable models run with `think: false`. So
-> no chain-of-thought is retained or replayed across calls; there is nothing to
-> cleanse on this path. (The separate **direct-connect** path,
-> `claude --model qwen3.6:35b-a3b-mtp-q4_K_M`, is a real multi-turn conversation; whether reasoning
-> blocks accumulate in history there is the client/Ollama template's
-> responsibility and is **not handled or verified** in this environment.)
+> task, not per subtask. (`codex` differs in kind: it hands off a *whole*
+> bounded task to a different model, not a subtask of the current one.)
 
 ### Dependency
 
@@ -854,31 +796,231 @@ codex mcp add localllm -- python3 $REP/ollama/mcp_localllm.py
 Verify in Claude Code with `/mcp` (expect `localllm` connected) and call
 `ask_local`. Remove it again with `claude mcp remove localllm` when done.
 
-### Available tools
+---
 
-| Tool                                 | Use for                                                                      |
-| ------------------------------------ | ---------------------------------------------------------------------------- |
-| `ask_local(prompt)`                | Prose: Q&A, explanations, summaries, translation, comment/docstring rewrites |
-| `ask_local_code(language, prompt)` | Code: generation, refactoring, unit-test skeletons, stubs, code translation  |
+## Codex task fork via MCP (each repo as its own sandbox)
 
-### Token usage logging
+> **Status: this supersedes the old `stop-review-gate` rg/review machinery.** That
+> section has been **reset** (see [What was reset, and why](#what-was-reset-and-why)
+> at the end). The only piece carried forward from it is the rg-cleanup `Stop`
+> hook, kept purely as insurance — see
+> [Insurance: rg-cleanup `Stop` hook](#insurance-keep-the-claude-code-rg-cleanup-stop-hook).
 
-Each `mcp_localllm.py` call appends a JSONL record (timestamp, source, tool,
-model, token counts, latency) to `usage_localllm.log` (override with
-`LOCALLLM_USAGE_LOG`); `mcp_gemini.py` writes the same schema to
-`usage_gemini.log` (override with `AGY_USAGE_LOG`). Gemini rows have null token
-fields — `agy` does not report token counts — so token columns reflect
-local-LLM usage only, while call/latency columns cover both. `usage_report.py`
-reads both logs at once:
+`mcp_codex.py` lets Claude Code **fork a whole, self-contained task to Codex
+(GPT-5.5)**, with each fork pinned to **one repository as its sandbox**. It is a
+thin stdio MCP server in the same shape as `mcp_gemini.py` (stdlib + FastMCP)
+that shells out to `codex exec`:
+
+```sh
+codex exec -C <repo> -s <sandbox> --skip-git-repo-check "<task>"
+```
+
+The `-C <repo>` flag makes that single repository Codex's entire working root —
+**that repo *is* the sandbox**.
+
+### Why fork through Claude Code (the two constraints it dissolves)
+
+This repo's workspace is a launch root (`~/rep`) holding **many independently
+cloned repositories side by side**, not one git repo. Two long-standing problems
+came from that, and the fork model removes both at the source:
+
+1. **The multi-repo root constraint becomes a non-issue for Codex.** Because every
+   fork is pinned with `-C <repo>`, Codex only ever sees one real git working
+   tree and never the root. The whole "operate at the second level or deeper /
+   `git` fails at the root / `rg .` fallback" problem (the original cause of the
+   lingering `rg` processes) **never arises** — Codex is structurally prevented
+   from running at the root.
+2. **Codex's cloud/local session-sharing limit becomes irrelevant.** Codex cannot
+   merge a cloud session with a local-profile session (the resume picker keeps
+   them separate; see [Codex](#codex)). But a fork carries no session: **Claude
+   Code holds the working context** and packs everything Codex needs into the
+   `task` string, then each `codex exec` runs **fresh and stateless**. There is
+   no session to share or merge, so the limitation simply does not apply.
+
+In short: forking *from* Claude Code lets Codex work as if the awkward
+side-by-side-clones layout did not exist, and lets the cloud Codex model act on
+context that originated in a (possibly local) Claude Code run.
+
+### Tools
+
+| Tool                                   | Sandbox             | Use for                                                                                                                     |
+| -------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `fork_to_codex(task, repo, sandbox)` | `workspace-write` | Hand off a bounded coding task (implement / refactor / fix) that should run**inside one repo**. Codex edits the repo. |
+| `ask_codex(question, repo)`          | `read-only`       | Read-only question about a repo — explanation, review, "where/how is X here". No edits.                                    |
+
+`repo` is resolved relative to `CODEX_FORK_BASE` (default `~/rep`) or accepts an
+absolute path; **that repo is the sandbox**. Each call is **one-shot and
+stateless** — put everything Codex needs in `task`/`question`; it cannot see the
+Claude Code conversation. `sandbox` accepts `read-only`, `workspace-write`
+(default), or `danger-full-access`.
+
+### How it routes to the cloud model
+
+The fork reuses the Codex login on the host (`~/.codex`) and runs on whatever
+model Codex is configured to use (**GPT-5.5** by default; pin with `CODEX_MODEL`).
+It is the **cloud** Codex path: it does **not** read the `OPENAI_*` variables that
+`source_local` leaves unset, so even when Claude Code itself runs on the local
+open-weight model, a fork is reviewed/executed by the high-accuracy cloud model.
+This is the same "barter" the old stop-review-gate aimed for — closed, cheap local
+work; cloud-side accuracy on the result — but driven **explicitly, per task**, by
+Claude Code calling the tool, instead of an implicit per-turn hook.
+
+### Register in Claude Code (and optionally Codex)
 
 ```bash
-python3 ollama/usage_report.py                  # both logs, source / tool table
-python3 ollama/usage_report.py --by source      # group by source (localllm vs gemini)
-python3 ollama/usage_report.py --by tool        # group by tool
-python3 ollama/usage_report.py --by day         # group by day
-python3 ollama/usage_report.py --json           # machine-readable totals
-python3 ollama/usage_report.py usage_gemini.log # one explicit file
+claude mcp add -s user codex python3 $REP/ollama/mcp_codex.py
+# (optional) expose to a Codex session too, for Codex-to-Codex forks:
+codex mcp add codex -- python3 $REP/ollama/mcp_codex.py
 ```
+
+Environment overrides (all optional):
+
+| Var                         | Default                           | Meaning                                            |
+| --------------------------- | --------------------------------- | -------------------------------------------------- |
+| `CODEX_BIN`               | `codex` on PATH → nvm fallback | Codex CLI binary (MCP host may lack the nvm PATH)  |
+| `CODEX_FORK_BASE`         | `~/rep`                         | Base that a relative `repo` resolves against     |
+| `CODEX_FORK_DEFAULT_REPO` | (empty)                           | Repo used when a call omits `repo`               |
+| `CODEX_MODEL`             | (empty → Codex default, GPT-5.5) | Pin the model for forks                            |
+| `CODEX_FORK_TIMEOUT`      | `1800`                          | Per-fork wall-clock cap (seconds)                  |
+| `CODEX_FORK_USAGE_LOG`    | `ollama/usage_codex.log`        | JSONL usage log (same schema as the other servers) |
+
+Usage is logged one JSONL record per call (`source: "codex"`, plus `repo` /
+`sandbox`), matching `usage_gemini.log` / `usage_localllm.log` so `usage_report.py`
+can aggregate all three.
+
+### Insurance: keep the Claude Code rg-cleanup `Stop` hook
+
+The fork model means Codex no longer runs at the multi-repo root, so the
+`stop-review-gate` `rg .` fallback that orphaned `rg` processes should not fire
+anymore. The `Stop` hook below is **kept as belt-and-suspenders only** — it costs
+nothing and still cleans up any stray `rg` from other sources.
+
+Add to `~/.claude/settings.json`; Claude Code runs it automatically when each
+session ends:
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "MY_SID=$(ps -p $$ -o sid= 2>/dev/null | tr -d ' '); pgrep -u \"$(id -un)\" rg 2>/dev/null | while read p; do [ \"$(ps -p $p -o sid= 2>/dev/null | tr -d ' ')\" = \"$MY_SID\" ] && kill $p 2>/dev/null; done; true"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The hook matches `rg` processes by **session ID (SID)**. SID is inherited from the
+parent at fork and does not change when a process becomes orphaned — so even after
+a spawner exits and `rg` is reparented to init, it retains the Claude Code
+session's SID.
+
+> **Best-effort:** not a perfect filter. `rg` processes started from the same
+> terminal session that launched Claude Code share the SID and would also be
+> killed. In practice that trade-off is acceptable — intentional long-running `rg`
+> searches in the same terminal as an active Claude Code session are rare.
+
+### What was reset, and why
+
+The previous "Codex stop-review-gate rg Process Lingering Issue" section built an
+elaborate per-turn machinery on top of the `stop-review-gate` hook: a cloud-vs-local
+**default/alternative** review-routing policy, prompt-template edits
+(`{{CLAUDE_RESPONSE_BLOCK}}`, the `<git_scope_rules>` / "review on the local model"
+blocks kept in sync across two prompt copies), and a table of GitHub-independent
+review options.
+
+That whole stack has been **reset**. It existed to (a) stop the root-level `rg .`
+fallback and (b) get a cloud-model accuracy check over closed local work. The
+[Codex task fork via MCP](#codex-task-fork-via-mcp-each-repo-as-its-own-sandbox)
+above addresses both more directly:
+
+- **(a)** is gone by construction — forks are pinned to one repo with `-C`, so the
+  root-level `git`/`rg .` fallback never runs. Only the rg-cleanup `Stop` hook is
+  retained, as insurance.
+- **(b)** becomes an **explicit, per-task** call (`ask_codex` / `fork_to_codex` on
+  the cloud GPT-5.5 model) instead of an implicit per-turn hook and synced prompt
+  edits.
+
+The "operate at the second level or deeper" rule and the `/codex:review --cwd`
+corollary still live in `~/.claude/CLAUDE.md` as the canonical git-scope guidance;
+they are no longer duplicated here. If the implicit stop-review-gate is ever wanted
+back, recover it from git history.
+
+---
+
+## Gemini external-access bridge (`mcp_gemini.py`) — primary
+
+Local models are weak at web access / RAG, so outward lookups are delegated to
+Gemini instead of building a crawler + vector store. `mcp_gemini.py` is a stdio
+MCP server (stdlib + FastMCP, same shape as `mcp_localllm.py`) that shells out
+to the **Antigravity CLI** (`agy -p`):
+
+> **When to use (both cloud and local):** whenever an answer depends on facts
+> outside the agent's own knowledge — anything post-cutoff, any
+> "latest"/release/version/pricing claim, or any external fact the agent is not
+> certain of — query `gemini` *before* answering, rather than answering from
+> memory or guessing. `ask_gemini_web` for web-grounded lookups, `ask_gemini`
+> otherwise. This rule is mirrored in the global `CLAUDE.md` / `AGENTS.md`.
+
+| Tool                      | Use for                                                                       |
+| ------------------------- | ----------------------------------------------------------------------------- |
+| `ask_gemini_web(query)` | External info: current facts, docs, release notes — Gemini web search, cited |
+| `ask_gemini(prompt)`    | Reasoning / summarization / drafting without forced web search                |
+
+- **No API key.** Reuses the OAuth credentials under `~/.gemini` that `agy`
+  already holds (works on enterprise accounts where an API key cannot be minted).
+- **`stdin=DEVNULL` is required** when shelling out — otherwise `agy` inherits
+  the MCP host's JSON-RPC stdin and hangs. (Already handled in the server.)
+- **Model is pinned to a Gemini model** (`Gemini 3.5 Flash (Low)` — low effort
+  to stay under the tight token limit). `agy`'s own default is off-brand here
+  (`Claude Opus 4.6 (Thinking)`). Override with `AGY_MODEL` (see `agy models`);
+  set `AGY_MODEL=` empty to fall back to `agy`'s configured default.
+- Other env: `AGY_BIN` (binary path), `AGY_WORKDIR` (cwd, default `~/rep`),
+  `AGY_TIMEOUT` (wall-clock cap, default 300s).
+- Latency: `agy` cold-starts its language server each call, so expect
+  ~7 s (`ask_gemini`) to ~20–30 s (`ask_gemini_web`).
+
+Register globally (this is the primary MCP — keep it on in both cloud and local
+modes):
+
+```bash
+claude mcp add -s user gemini python3 $REP/ollama/mcp_gemini.py
+codex mcp add gemini -- python3 $REP/ollama/mcp_gemini.py
+```
+
+---
+
+## Local model bridge (`mcp_localllm.py`) — deprecated, on demand
+
+`mcp_localllm.py` exposes the **active local model** as two stdio MCP tools. It
+is model-agnostic: it auto-detects whichever model Ollama currently has loaded
+(`/api/ps`, falling back to the first installed model from `/api/tags`) and
+adapts to that model's capabilities (`/api/show`). For **thinking-capable**
+models (e.g. `qwen3.6:35b-a3b`) it sets `think: false` on the native `/api/chat` call so
+the answer lands in `content` instead of being consumed by chain-of-thought
+under the output-token budget; non-thinking models are called plainly. Only the
+Python standard library is used (no OpenAI SDK).
+
+Overrides: `OLLAMA_HOST` (default `http://localhost:11434`), `LOCALLLM_MODEL_ID`
+(pin a specific model instead of auto-detecting), `LOCALLLM_MAX_TOKENS`
+(default `2048`), `LOCALLLM_TEMPERATURE` (default `0.2`), `LOCALLLM_TOP_P` /
+`LOCALLLM_TOP_K` (unset → Ollama defaults; forwarded only when set). Legacy
+`QWEN_MODEL_ID` / `QWEN_USAGE_LOG` are still honored for backward compatibility.
+
+> **Multi-turn / thinking accumulation:** the MCP tools are **single-shot** —
+> each `ask_local` / `ask_local_code` call sends only a fresh system+user pair
+> with no prior turns, and thinking-capable models run with `think: false`. So
+> no chain-of-thought is retained or replayed across calls; there is nothing to
+> cleanse on this path. (The separate **direct-connect** path,
+> `claude --model qwen3.6:35b-a3b-mtp-q4_K_M`, is a real multi-turn conversation; whether reasoning
+> blocks accumulate in history there is the client/Ollama template's
+> responsibility and is **not handled or verified** in this environment.)
 
 ### Token limits and sampling
 
@@ -903,166 +1045,21 @@ exceeds the 2,048-token output limit.
 
 ---
 
-## Tips: Codex stop-review-gate rg Process Lingering Issue
+## Token usage logging
 
-Codex's `stop-review-gate` hook spawns `codex-companion.mjs`, which scans the repository with `rg .`. After the task completes or times out, child `rg` processes can remain orphaned — keeping load average elevated.
+Each `mcp_localllm.py` call appends a JSONL record (timestamp, source, tool,
+model, token counts, latency) to `usage_localllm.log` (override with
+`LOCALLLM_USAGE_LOG`); `mcp_gemini.py` writes the same schema to
+`usage_gemini.log` (override with `AGY_USAGE_LOG`). Gemini rows have null token
+fields — `agy` does not report token counts — so token columns reflect
+local-LLM usage only, while call/latency columns cover both. `usage_report.py`
+reads both logs at once:
 
-### Root Cause & Primary Mitigation: Operate at the Second Level or Deeper
-
-The harness launch root (the top-level workspace directory) is not a single git
-repository — it holds many independently-cloned repositories. When `git` is run
-from that root it fails, so the review gate falls back to extracting the diff with
-a repository-wide `rg .`, which is exactly what spawns the lingering `rg` processes.
-
-**The first-line fix is to always operate at the second level or deeper**, i.e.
-`cd` into the concrete target project (`<workspace-root>/<project>/<subdir>`, a
-real git working tree) before any `git` / diff operation, instead of the launch
-root. Inside a single repository `git` stays valid and the gate extracts a real
-diff rather than scanning the whole tree. This general rule is documented in
-`~/.claude/CLAUDE.md` (Claude Code), `~/.codex/AGENTS.md` (Codex), and — so the
-gate's own Codex run also honours it — in the stop-review-gate prompt template
-itself via a `<git_scope_rules>` block (keep both prompt copies in sync; see the
-table in the *Alternative* section below). The `Stop` hook below remains as a
-belt-and-suspenders cleanup for any `rg` that still leaks.
-
-### Fix: Claude Code `Stop` Hook
-
-Add the following to `~/.claude/settings.json`. Claude Code runs it automatically when each session ends, killing any lingering `rg` processes before they accumulate.
-
-```json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "MY_SID=$(ps -p $$ -o sid= 2>/dev/null | tr -d ' '); pgrep -u \"$(id -un)\" rg 2>/dev/null | while read p; do [ \"$(ps -p $p -o sid= 2>/dev/null | tr -d ' ')\" = \"$MY_SID\" ] && kill $p 2>/dev/null; done; true"
-          }
-        ]
-      }
-    ]
-  }
-}
+```bash
+python3 ollama/usage_report.py                  # both logs, source / tool table
+python3 ollama/usage_report.py --by source      # group by source (localllm vs gemini)
+python3 ollama/usage_report.py --by tool        # group by tool
+python3 ollama/usage_report.py --by day         # group by day
+python3 ollama/usage_report.py --json           # machine-readable totals
+python3 ollama/usage_report.py usage_gemini.log # one explicit file
 ```
-
-The hook matches `rg` processes by **session ID (SID)**. SID is inherited from the parent at fork and does not change when a process becomes orphaned — so even after `codex-companion.mjs` exits and `rg` is reparented to init, it retains the Claude Code session's SID.
-
-> **Best-effort:** this is not a perfect filter. `rg` processes started from the same terminal session that launched Claude Code share the same SID and would also be killed. In practice this trade-off is acceptable — intentional long-running `rg` searches in the same terminal as an active Claude Code session are rare.
-
-### Default: run the stop-gate review on the cloud model (accuracy check for closed local work)
-
-The point of running the Claude Code / Codex harness **directly on the local
-(open-weight) model** is token saving and keeping the work **closed** — nothing
-leaves the host (see [cloud / local static switching](#cloud--local-static-switching)).
-The `localllm` MCP server is *not* this path: it is a debugging / inspection tool
-only, so the real token-saving + closed-information win comes from the **direct
-harness execution** on the local model, not from delegating subtasks over MCP. The
-cost of that win is accuracy: a 26–35B local model reasons less reliably than the
-cloud model.
-
-**Policy: let the local model do the closed, cheap work, and let the *review* run
-on the cloud model.** The stop-review-gate is where that trade-off is rebalanced —
-the diff is handed to the high-accuracy cloud model for the ALLOW/BLOCK check. You
-**barter away closure for the review portion only** (just the diff is exposed to
-the cloud), in exchange for a trustworthy accuracy gate over work the open-weight
-local model produced. The bulk of the context — full repo, intermediate reasoning —
-never leaves the host; only the final diff is reviewed in the cloud.
-
-This is the **default** and needs no prompt edit: the stop-review-gate hook spawns
-Codex, and Codex shares no `OPENAI_*` env with the local switch (see
-[cloud / local static switching](#cloud--local-static-switching)), so the gate's
-review **already runs on the cloud** even while Claude Code itself runs on the local
-model. To be sure the gate is *not* accidentally pinned to local:
-
-- do **not** source / pass a Codex local profile (`codex --profile ollama-*`) in
-  the shell that launches the gate, and
-- do **not** add the local-routing block from the *Alternative* below to the prompt
-  template (if it is already there, remove it to restore the cloud review).
-
-```sh
-grep -n localllm ~/.codex/config.toml         # for the gate: absent / commented = cloud review
-ollama ps                                      # local model serves the worker, not the review gate
-```
-
-### Alternative: full closure — route the review to the local model too
-
-Use this **only** when the work is sensitive enough that **even the diff must not
-reach the cloud**. It gives up the cloud accuracy check above and runs the review
-reasoning on the local model as well, keeping everything closed.
-
-The Codex stop-time review gate runs from a **fixed prompt template** — not text
-Claude generates per turn. Only the `{{CLAUDE_RESPONSE_BLOCK}}` placeholder is
-substituted at runtime with the previous Claude turn's output; the ALLOW/BLOCK
-contract and fast-path rules are hard-coded in the template, which
-`stop-review-gate-hook.mjs` / `codex-companion.mjs` read and run.
-
-To force the gate's review reasoning onto the **local model** (so Codex keeps file
-I/O and the final ALLOW/BLOCK decision but nothing — not even the diff — leaves the
-host), add this block to the prompt template:
-
-```text
-When reviewing actual code changes and local LLM MCP tools are available, run
-the review reasoning on the local model after gathering the relevant repository
-context locally. Pass it the concrete diff and relevant file snippets; do not ask
-it to read paths or use tools. Keep all file I/O, command execution, and the final
-ALLOW/BLOCK decision in Codex. If the previous turn did not make direct edits,
-return ALLOW immediately without calling the local model.
-```
-
-The block must be present in **both** prompt copies, because a plugin reinstall /
-cache refresh overwrites the cache copy from the source copy:
-
-| File                                                                                      | Purpose                                                                         |
-| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `~/.claude/plugins/cache/openai-codex/codex/<ver>/prompts/stop-review-gate.md`          | Runtime prompt used for the stop-gate Codex task                                |
-| `~/.claude/plugins/marketplaces/openai-codex/plugins/codex/prompts/stop-review-gate.md` | Source prompt to keep in sync so reinstall/cache refresh does not lose the rule |
-
-The prompt-level rule is inert unless the `localllm` MCP server is also exposed to
-the Codex session via `~/.codex/config.toml` (`[mcp_servers.localllm]`, pointing at
-`$REP/ollama/mcp_localllm.py`). Verify both the block and the MCP wiring with:
-
-```sh
-grep -c "local model" \
-  ~/.claude/plugins/cache/openai-codex/codex/*/prompts/stop-review-gate.md \
-  ~/.claude/plugins/marketplaces/openai-codex/plugins/codex/prompts/stop-review-gate.md
-grep -n localllm ~/.codex/config.toml
-```
-
-After any Codex plugin reinstall, re-confirm the cache copy still carries the block.
-
-### Other TIPS options: cloud review without GitHub
-
-The Codex stop-review-gate is **one** way to put a cloud-side accuracy check over
-closed local work; it is not the only one. **The constraint here is workflow:** this
-repo commits locally and pushes to an **on-prem remote — no GitHub PRs**. So
-marketplace review plugins built around `gh` / GitHub PRs (`code-review`,
-`pr-review-toolkit`, `coderabbit`, …) **do not fit** and were dropped after a trial
-(`code-review` needs `gh pr ...` and an open PR). Only **GitHub-independent**,
-local-diff-based options belong here:
-
-| Option                               | GitHub | What it reviews                                                                                                                                         |
-| ------------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **stop-review-gate** (above)   | none   | Each turn's edit diff → cloud Codex ALLOW/BLOCK. The default; always on, no extra install                                                              |
-| **`/codex:review`**          | none   | Runs Codex's built-in reviewer against local git state (`git diff`); cloud-side evaluation without GitHub — manual review preferred over per-turn auto-call (user-triggered, billed). Reviews the repo at its **cwd**, so it must target a real working tree (see caveat below) |
-| **`/code-review ultra`**     | none   | No-arg form bundles the local branch for a cloud multi-agent review; needs no GitHub remote (user-triggered, billed — cannot be launched by the agent) |
-| **direct `git diff` review** | none   | Hand `git diff main...HEAD` (or any range) straight to the cloud model for an inline review — fully independent of any remote                        |
-
-These all run the review on the cloud model, so they keep the same barter — closed,
-cheap local work; cloud-side accuracy check on the result — **without** depending on
-GitHub. They are **additive** to the stop-review-gate, not a replacement for the
-rg-cleanup `Stop` hook above (still needed regardless of who runs the review).
-
-> **`/codex:review` targets the repo at its cwd.** `codex-companion.mjs review`
-> reviews the git working tree of its working directory, and the slash-command flow
-> contains no `cd`. The launch root (`<workspace-root>`, e.g. `/mnt/hdd/edgeai/rep`)
-> is **not** a git repo — each subdir (`ollama/`, `eai_design/`, …) is its own clone —
-> so running the review from the root fails with `fatal: not a git repository`. Pass
-> the target repository explicitly with `--cwd <repo>` (or `-C <repo>`), resolved by
-> walking up from the file under review to its enclosing `.git`; e.g. reviewing
-> `ollama/README.md` →
-> `node <…>/codex-companion.mjs review --cwd <workspace-root>/ollama`. This mirrors
-> the "operate at the second level or deeper" rule in `~/.claude/CLAUDE.md`
-> (*Repository Scope for Git Operations* → *`/codex:review` corollary*), where the
-> auto-targeting behaviour is the canonical source.
