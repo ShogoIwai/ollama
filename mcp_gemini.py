@@ -38,6 +38,48 @@ AGY_WORKDIR = os.environ.get("AGY_WORKDIR") or os.path.expanduser("~/rep")
 # empty (AGY_MODEL=) to fall back to agy's configured default. See `agy models`.
 AGY_MODEL = os.environ.get("AGY_MODEL", "Gemini 3.5 Flash (Low)") or None
 
+# Fallback chain for rate-limit / empty-response recovery. When a call comes back
+# empty (agy prints nothing when a model is throttled -- it exits 0 with no
+# stdout), we retry the same prompt on the next model here.
+#
+# In practice this account's Gemini tiers share a quota: when one Gemini model is
+# throttled the others usually are too, so escalating across Gemini tiers buys
+# nothing (verified 2026-06-13). The chain is therefore one model per provider --
+# Gemini -> Claude -> GPT-OSS -- so a single throttle hop reaches a different
+# quota bucket and returns a real answer fast. Non-Gemini answers are tagged in
+# the output so the caller knows it isn't Gemini. Override via
+# AGY_MODEL_FALLBACKS (comma-separated). The primary AGY_MODEL is tried first
+# and de-duplicated out of this list.
+_DEFAULT_FALLBACKS = [
+    "Gemini 3.5 Flash (Low)",
+    "Claude Sonnet 4.6 (Thinking)",
+    "GPT-OSS 120B (Medium)",
+]
+
+# Models that are not Gemini; answers from these get a banner so the caller is
+# not misled into thinking the "gemini" tool actually ran on Gemini.
+def _is_gemini(model) -> bool:
+    return bool(model) and model.lower().startswith("gemini")
+_fallback_env = os.environ.get("AGY_MODEL_FALLBACKS")
+AGY_MODEL_FALLBACKS = (
+    [m.strip() for m in _fallback_env.split(",") if m.strip()]
+    if _fallback_env is not None
+    else _DEFAULT_FALLBACKS
+)
+
+# Ordered list of models to try: primary first, then any fallback not already
+# covered. None (agy default) is kept as a final attempt if AGY_MODEL is unset.
+def _model_chain() -> list:
+    chain = []
+    if AGY_MODEL:
+        chain.append(AGY_MODEL)
+    for m in AGY_MODEL_FALLBACKS:
+        if m and m not in chain:
+            chain.append(m)
+    if not chain:
+        chain.append(None)  # fall back to agy's configured default
+    return chain
+
 # Hard wall-clock cap for a single call (seconds). agy's own --print-timeout is
 # set just under this so the CLI returns before subprocess.run kills it.
 TIMEOUT = int(os.environ.get("AGY_TIMEOUT", "300"))
@@ -53,8 +95,12 @@ USAGE_LOG = (
 mcp = FastMCP("gemini")
 
 
-def _run_agy(prompt: str, tool: str) -> str:
-    """Run a single non-interactive prompt through `agy -p` and return its stdout.
+def _run_agy_once(prompt: str, tool: str, model) -> tuple:
+    """Run one `agy -p` attempt on `model`. Returns (text, ok).
+
+    `ok` is False when the attempt should trigger a fallback retry: an empty
+    response (agy prints nothing when the model is rate-limited -- it still exits
+    0) or a non-zero exit with no usable stdout. A genuine answer sets ok=True.
 
     --dangerously-skip-permissions lets agy use its tools (web search, file
     reads) without an interactive approval prompt, which would otherwise hang a
@@ -64,9 +110,10 @@ def _run_agy(prompt: str, tool: str) -> str:
     # Give agy slightly less time than our subprocess wall so it can flush a
     # partial answer instead of being SIGKILLed mid-write.
     cmd += ["--print-timeout", f"{max(TIMEOUT - 15, 30)}s"]
-    if AGY_MODEL:
-        cmd += ["--model", AGY_MODEL]
+    if model:
+        cmd += ["--model", model]
 
+    label = model or "agy-default"
     started = time.monotonic()
     try:
         proc = subprocess.run(
@@ -81,20 +128,49 @@ def _run_agy(prompt: str, tool: str) -> str:
             timeout=TIMEOUT,
         )
     except subprocess.TimeoutExpired:
-        _log(tool, len(prompt), time.monotonic() - started, "timeout")
-        return f"[gemini error] agy timed out after {TIMEOUT}s"
+        _log(tool, len(prompt), time.monotonic() - started, "timeout", label)
+        # Timeout is not a quota signal, but retrying on a faster tier may help.
+        return (f"[gemini error] agy timed out after {TIMEOUT}s", False)
 
     out = (proc.stdout or "").strip()
     err = (proc.stderr or "").strip()
-    _log(tool, len(prompt), time.monotonic() - started, f"rc={proc.returncode}")
+    _log(tool, len(prompt), time.monotonic() - started,
+         f"rc={proc.returncode}", label)
 
     if proc.returncode != 0 and not out:
         tail = err[-800:] if err else "(no stderr)"
-        return f"[gemini error] agy exited {proc.returncode}: {tail}"
-    return out or "[gemini error] empty response"
+        return (f"[gemini error] agy exited {proc.returncode}: {tail}", False)
+    if not out:
+        # Empty stdout with rc=0 is agy's rate-limit / throttle signature.
+        return ("[gemini error] empty response", False)
+    return (out, True)
 
 
-def _log(tool: str, input_chars: int, latency_s: float, status: str) -> None:
+def _run_agy(prompt: str, tool: str) -> str:
+    """Run a prompt through `agy -p`, falling back across the model chain on
+    rate-limit / empty responses. Returns the first real answer, or the last
+    error annotated with the models tried.
+    """
+    chain = _model_chain()
+    last = "[gemini error] empty response"
+    for i, model in enumerate(chain):
+        text, ok = _run_agy_once(prompt, tool, model)
+        if ok:
+            if not _is_gemini(model):
+                # Be honest: this answer did not come from Gemini.
+                return (f"[note] Gemini was rate-limited; answered with "
+                        f"'{model}' instead.\n\n{text}")
+            return text
+        last = text
+        # Brief backoff before escalating to the next tier (skip after last).
+        if i < len(chain) - 1:
+            time.sleep(1)
+    tried = ", ".join(m or "agy-default" for m in chain)
+    return f"{last} (all models rate-limited/failed; tried: {tried})"
+
+
+def _log(tool: str, input_chars: int, latency_s: float, status: str,
+         model: str = None) -> None:
     """Append a JSONL record matching mcp_localllm.py's schema (token fields
     are null because agy does not report token counts). Never raise."""
     try:
@@ -102,7 +178,7 @@ def _log(tool: str, input_chars: int, latency_s: float, status: str) -> None:
             "ts": datetime.now(timezone.utc).isoformat(),
             "source": "gemini",
             "tool": tool,
-            "model": AGY_MODEL or "agy-default",
+            "model": model or AGY_MODEL or "agy-default",
             "input_chars": input_chars,
             "prompt_tokens": None,
             "completion_tokens": None,
