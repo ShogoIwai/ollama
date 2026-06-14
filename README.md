@@ -375,7 +375,7 @@ default (same `qwen35moe` architecture, ~3B active, native 256K context) that
 drops the content-refusal/judgement layer **but keeps the vision tower**
 (projector / mmproj bundled in the tag, ~899MB), so it can load images and PDF
 pages. It **replaced** an earlier text-only uncensored build
-(`joe-speedboat/...-Uncensored-Text`, removed 2026-06-12) that could not handle
+(`joe-speedboat/...-Uncensored-Text`, since removed) that could not handle
 PDF/image input. `Q4` ≈ 22GB weights. **Measured on this host (RTX 3090 24GB)**
 with the shared wrapper settings (`OLLAMA_KV_CACHE_TYPE=q8_0` + flash attention):
 `/api/show` capabilities `['completion','vision','tools','thinking']` (**vision
@@ -857,6 +857,52 @@ stateless** — put everything Codex needs in `task`/`question`; it cannot see t
 Claude Code conversation. `sandbox` accepts `read-only`, `workspace-write`
 (default), or `danger-full-access`.
 
+### External access: web & Notion (`web_rag` / `notion_page`)
+
+Outward access (web lookups, Notion) is **folded into `mcp_codex.py`** rather than
+a separate bridge: `web_rag` and `notion_page` are just two more tools on the same
+one-shot `codex exec` fork, so Codex itself is the external-access path. The old
+standalone `gemini` server (`mcp_gemini.py`, backed by the Antigravity `agy` CLI)
+has been **removed**; recover it from git history if ever wanted back. Both tools
+run `read-only` on the filesystem — Codex searches/writes externally but never
+edits the repo (`repo` only supplies the fork's working root).
+
+> **When to use `web_rag` (both cloud and local):** whenever an answer depends on
+> facts outside the agent's own knowledge — anything post-cutoff, any
+> "latest"/release/version/pricing claim, or any external fact the agent is not
+> certain of — query `web_rag` *before* answering, rather than answering from
+> memory or guessing. This rule is mirrored in the global `CLAUDE.md` / `AGENTS.md`.
+
+- **Web search** uses Codex's native Responses `web_search` tool, enabled per call
+  with `codex exec -c tools.web_search=true`; it returns up-to-date answers with
+  cited URLs.
+- **Notion** works because Codex's `~/.codex/config.toml` registers the Notion MCP
+  (`[mcp_servers.notion]` → `https://mcp.notion.com/mcp`). A `notion_page` fork can
+  search the workspace, create pages, and edit existing ones; all writes go to
+  Notion through the MCP, not the repo.
+- **No extra auth.** Reuses the Codex login on the host (`~/.codex`) and the Notion
+  MCP's own OAuth; no API key to mint. Env knobs are shared with the other fork
+  tools (`CODEX_BIN`, `CODEX_FORK_BASE`, `CODEX_MODEL`, `CODEX_FORK_TIMEOUT`), and
+  no separate registration is needed — these ship with the already-registered
+  `codex` server.
+
+> **Required Notion config — auto-approve, OAuth connector only.** Because the fork
+> runs `codex exec` **non-interactively** (`stdin` is closed), any MCP tool call
+> that needs per-call approval is auto-**cancelled** (`user cancelled MCP tool
+> call`). So the OAuth `notion` connector must be set to auto-approve in
+> `~/.codex/config.toml`:
+>
+> ```toml
+> [mcp_servers.notion]
+> url = "https://mcp.notion.com/mcp"
+> default_tools_approval_mode = "approve"   # "approve" = auto-approve (values: auto | prompt | approve)
+> ```
+>
+> Without it, `notion_page` returns `user cancelled MCP tool call`. Do **not** rely
+> on the Bearer-token `codex_apps` managed connector — it lacks page access and
+> returns `UNAUTHORIZED`; phrase the `task` to use the OAuth `notion` connector
+> explicitly. Verified end-to-end (append + delete on a target page).
+
 ### How it routes to the cloud model
 
 The fork reuses the Codex login on the host (`~/.codex`) and runs on whatever
@@ -953,42 +999,6 @@ The "operate at the second level or deeper" rule and the `/codex:review --cwd`
 corollary still live in `~/.claude/CLAUDE.md` as the canonical git-scope guidance;
 they are no longer duplicated here. If the implicit stop-review-gate is ever wanted
 back, recover it from git history.
-
----
-
-## External-access path (`web_rag` / `notion_page`) — folded into `mcp_codex.py`
-
-Outward access (web lookups, Notion) is delegated to **Codex** rather than a
-separate bridge. The old standalone `gemini` server (`mcp_gemini.py`, backed by
-the Antigravity `agy` CLI) has been **removed**; its two jobs now live as tools on
-`mcp_codex.py`, reusing the same one-shot `codex exec` fork mechanism. Recover the
-deleted Gemini server from git history if it is ever wanted back.
-
-> **When to use (both cloud and local):** whenever an answer depends on facts
-> outside the agent's own knowledge — anything post-cutoff, any
-> "latest"/release/version/pricing claim, or any external fact the agent is not
-> certain of — query `web_rag` *before* answering, rather than answering from
-> memory or guessing. This rule is mirrored in the global `CLAUDE.md` / `AGENTS.md`.
-
-| Tool                      | Use for                                                                                 |
-| ------------------------- | --------------------------------------------------------------------------------------- |
-| `web_rag(query, repo)`    | External info: current facts, docs, release notes — `codex exec -c tools.web_search=true`, cited URLs   |
-| `notion_page(task, repo)` | Create or update Notion pages via the Notion MCP registered in Codex's config           |
-
-- **Web search** uses Codex's native Responses `web_search` tool, enabled per call
-  with `codex exec -c tools.web_search=true`. The run is `read-only` — Codex searches and reasons
-  but never edits the repo.
-- **Notion** works because Codex's `~/.codex/config.toml` registers the Notion MCP
-  (`[mcp_servers.notion]` → `https://mcp.notion.com/mcp`). A `notion_page` fork can
-  search the workspace, create pages, and edit existing ones; all writes go to
-  Notion through the MCP, not to the repo (so it too runs `read-only` on the FS).
-- **No extra auth.** Reuses the Codex login on the host (`~/.codex`) and the Notion
-  MCP's own OAuth; no API key to mint.
-- Env: shares `mcp_codex.py`'s knobs (`CODEX_BIN`, `CODEX_FORK_BASE`,
-  `CODEX_MODEL`, `CODEX_FORK_TIMEOUT`).
-
-No separate registration — these ship with the already-registered `codex` server
-(`claude mcp add -s user codex python3 $REP/ollama/mcp_codex.py`).
 
 ---
 
