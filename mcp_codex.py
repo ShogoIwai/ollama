@@ -20,11 +20,17 @@ the multi-repo root, so the side-by-side-clones constraint simply does not apply
 and because each call is a fresh stateless `codex exec` there is no session to
 share or merge.
 
+Beyond forking code tasks, this server is also the host's external-access path
+(it absorbs what the old `gemini` server did): `web_rag` answers questions with
+live web search (`codex exec -c tools.web_search=true`), and `notion_page` creates/updates Notion
+pages through the Notion MCP that Codex has registered in its config. Both reuse
+the same one-shot `codex exec` fork mechanism.
+
 Auth/model: reuses the Codex login already on the host (`~/.codex`). The model is
 whatever Codex is configured to use (GPT-5.5 by default) unless CODEX_MODEL pins
 one. This is the *cloud* Codex path; it does not read OPENAI_* from source_local.
 
-Only the Python standard library + FastMCP are used (matches mcp_gemini.py).
+Only the Python standard library + FastMCP are used.
 """
 
 import json
@@ -78,20 +84,28 @@ def _resolve_repo(repo: str) -> str:
     return os.path.join(FORK_BASE, repo)
 
 
-def _run_codex(task: str, repo: str, sandbox: str, tool: str) -> str:
+def _run_codex(task: str, repo: str, sandbox: str, tool: str,
+               search: bool = False) -> str:
     """Run one non-interactive `codex exec` pinned to `repo` and return the
     agent's last message.
 
     `-C <repo>` makes that single repo the working root (the sandbox); `-s`
     selects the sandbox policy; `--skip-git-repo-check` lets a non-git target
-    still run. stdin is detached because, when spawned by an MCP host, our stdin
-    is the JSON-RPC pipe and Codex would otherwise block on / steal it.
+    still run. `search=True` turns on the native Responses `web_search` tool (via
+    the `tools.web_search=true` config override) so Codex can ground its answer
+    on live web results. stdin
+    is detached because, when spawned by an MCP host, our stdin is the JSON-RPC
+    pipe and Codex would otherwise block on / steal it.
     """
     workdir = _resolve_repo(repo)
     if not os.path.isdir(workdir):
         return f"[codex error] repo not found: {workdir}"
 
     cmd = [CODEX_BIN, "exec", "-C", workdir, "-s", sandbox, "--skip-git-repo-check"]
+    if search:
+        # `codex exec` has no --search flag (that is the interactive `codex`
+        # flag); enable the native web_search tool via a config override instead.
+        cmd += ["-c", "tools.web_search=true"]
     if CODEX_MODEL:
         cmd += ["-m", CODEX_MODEL]
     cmd += [task]
@@ -172,6 +186,45 @@ def ask_codex(question: str, repo: str = "") -> str:
     edits. Use for code explanation, review, or "where/how is X done here".
     """
     return _run_codex(question, repo=repo, sandbox="read-only", tool="ask_codex")
+
+
+@mcp.tool()
+def web_rag(query: str, repo: str = "") -> str:
+    """Answer a question using Codex (GPT-5.5) with live web search (grounded RAG).
+
+    Use this whenever the answer depends on facts outside the model's own
+    knowledge: anything post-cutoff, any "latest"/release/version/pricing claim,
+    library/API docs, or any external fact you are not certain of. Codex runs its
+    native `web_search` tool, reads the results, and returns an up-to-date answer
+    with source URLs. This is the external-access path (it replaces the old
+    `gemini` server); prefer it over answering from memory.
+
+    The run is read-only -- Codex never edits the repo, it only searches and
+    reasons. `repo` just supplies a working root for the fork (defaults apply).
+    """
+    grounded = (
+        "Search the web for current, authoritative information and answer the "
+        "following. Cite source URLs inline.\n\n" + query
+    )
+    return _run_codex(grounded, repo=repo, sandbox="read-only",
+                      tool="web_rag", search=True)
+
+
+@mcp.tool()
+def notion_page(task: str, repo: str = "") -> str:
+    """Create or update Notion pages via Codex (GPT-5.5) + the Notion MCP.
+
+    Codex has the Notion MCP server (`mcp.notion.com`) registered in its config,
+    so a fork can search the workspace, create new pages, and edit existing ones.
+    Use this to make a new page ("create a page titled X under Y with ...") or to
+    update one ("append/replace section Z on page <url-or-title> with ..."). Put
+    the full intent -- target location/page, title, and the exact content -- in
+    `task`; the call is one-shot and cannot see this conversation.
+
+    Runs read-only on the filesystem: all writes go to Notion through the MCP,
+    not to the repo. `repo` only supplies a working root for the fork.
+    """
+    return _run_codex(task, repo=repo, sandbox="read-only", tool="notion_page")
 
 
 if __name__ == "__main__":

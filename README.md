@@ -227,12 +227,10 @@ marker to fall back to the `qwen3.6:35b-a3b-mtp-q4_K_M` default.
 | `_ollama_serve_common.sh`                  | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in `~/.ollama_active_model`                                                                                                                     |
 | `source_local` / `.csh`                  | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local                                                                                                                                                                         |
 | `source_cloud` / `.csh`                  | CLOUD mode: unset those env vars and `unalias claude`/`codex`                                                                                                                                                                                            |
-| `mcp_codex.py`                             | MCP server that forks a task from Claude Code into a one-shot Codex (GPT-5.5) run pinned to a single repo as its sandbox (`fork_to_codex` / `ask_codex`) — see [Codex task fork via MCP](#codex-task-fork-via-mcp-each-repo-as-its-own-sandbox)            |
-| `mcp_gemini.py`                            | MCP server giving local runs an external-access path via Gemini (`ask_gemini_web` / `ask_gemini`), backed by the Antigravity CLI (`agy`) — no API key                                                                                                 |
+| `mcp_codex.py`                             | MCP server that forks a task from Claude Code into a one-shot Codex (GPT-5.5) run pinned to a single repo as its sandbox (`fork_to_codex` / `ask_codex`), and the host's external-access path: `web_rag` (live web search) + `notion_page` (create/update Notion pages via the Notion MCP) — see [Codex task fork via MCP](#codex-task-fork-via-mcp-each-repo-as-its-own-sandbox) |
 | `mcp_localllm.py`                          | MCP server exposing the active local model as `ask_local` / `ask_local_code` tools (**deprecated**; register on demand for local-model debugging only)                                                                                             |
-| `usage_report.py`                          | Aggregate local LLM, Gemini**and** Codex usage from `usage_localllm.log` + `usage_gemini.log` + `usage_codex.log`                                                                                                                                |
+| `usage_report.py`                          | Aggregate local LLM **and** Codex usage from `usage_localllm.log` + `usage_codex.log`                                                                                                                                |
 | `usage_codex.log`                          | JSONL usage records written by `mcp_codex.py` (gitignored)                                                                                                                                                                                                 |
-| `usage_gemini.log`                         | JSONL usage records written by `mcp_gemini.py` (gitignored)                                                                                                                                                                                                |
 | `usage_localllm.log`                       | JSONL usage records written by `mcp_localllm.py` (gitignored)                                                                                                                                                                                              |
 
 ---
@@ -748,11 +746,12 @@ codex                                    # cloud (default profile)
 >   [accuracy/cross-model review path](#codex-task-fork-via-mcp-each-repo-as-its-own-sandbox)
 >   and the way Codex sidesteps both the multi-repo launch root and its own
 >   cloud/local session-sharing limits.
-> - **`gemini` (`mcp_gemini.py`) — the primary, always-registered MCP.** It is
->   the external-access bridge (`ask_gemini_web` / `ask_gemini`). In **local**
->   mode it is effectively the only outward path (local models are weak at
->   web/RAG); in **cloud** mode it is cheaper and lower-maintenance than a
->   self-hosted RAG and needs no API key. Keep it registered in both modes.
+>   The same server is also the host's **external-access bridge**: `web_rag`
+>   (`codex exec -c tools.web_search=true`, live web search with cited sources) and `notion_page`
+>   (create/update Notion pages through the Notion MCP registered in Codex's
+>   config). These absorb what the old `gemini` server did — query `web_rag`
+>   whenever an answer depends on facts outside the model's knowledge (anything
+>   post-cutoff, any "latest"/release/version/pricing claim) rather than guessing.
 > - **`localllm` (`mcp_localllm.py`) — deprecated, register on demand only.** Its
 >   path is **single-shot** (no history), so it cannot share Claude Code's
 >   working context; that need is served better by a **separate terminal**
@@ -811,8 +810,7 @@ Verify in Claude Code with `/mcp` (expect `localllm` connected) and call
 
 `mcp_codex.py` lets Claude Code **fork a whole, self-contained task to Codex
 (GPT-5.5)**, with each fork pinned to **one repository as its sandbox**. It is a
-thin stdio MCP server in the same shape as `mcp_gemini.py` (stdlib + FastMCP)
-that shells out to `codex exec`:
+thin stdio MCP server (stdlib + FastMCP) that shells out to `codex exec`:
 
 ```sh
 codex exec -C <repo> -s <sandbox> --skip-git-repo-check "<task>"
@@ -850,6 +848,8 @@ context that originated in a (possibly local) Claude Code run.
 | -------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `fork_to_codex(task, repo, sandbox)` | `workspace-write` | Hand off a bounded coding task (implement / refactor / fix) that should run**inside one repo**. Codex edits the repo. |
 | `ask_codex(question, repo)`          | `read-only`       | Read-only question about a repo — explanation, review, "where/how is X here". No edits.                                    |
+| `web_rag(query, repo)`               | `read-only`       | External-access path: live web search (`codex exec -c tools.web_search=true`) with cited sources. Use for anything post-cutoff or "latest". |
+| `notion_page(task, repo)`            | `read-only`       | Create or update Notion pages via the Notion MCP registered in Codex's config. Writes go to Notion, not the repo.          |
 
 `repo` is resolved relative to `CODEX_FORK_BASE` (default `~/rep`) or accepts an
 absolute path; **that repo is the sandbox**. Each call is **one-shot and
@@ -888,8 +888,7 @@ Environment overrides (all optional):
 | `CODEX_FORK_USAGE_LOG`    | `ollama/usage_codex.log`        | JSONL usage log (same schema as the other servers) |
 
 Usage is logged one JSONL record per call (`source: "codex"`, plus `repo` /
-`sandbox`), matching `usage_gemini.log` / `usage_localllm.log` so `usage_report.py`
-can aggregate all three.
+`sandbox`), matching `usage_localllm.log` so `usage_report.py` can aggregate both.
 
 ### Insurance: keep the Claude Code rg-cleanup `Stop` hook
 
@@ -957,45 +956,39 @@ back, recover it from git history.
 
 ---
 
-## Gemini external-access bridge (`mcp_gemini.py`) — primary
+## External-access path (`web_rag` / `notion_page`) — folded into `mcp_codex.py`
 
-Local models are weak at web access / RAG, so outward lookups are delegated to
-Gemini instead of building a crawler + vector store. `mcp_gemini.py` is a stdio
-MCP server (stdlib + FastMCP, same shape as `mcp_localllm.py`) that shells out
-to the **Antigravity CLI** (`agy -p`):
+Outward access (web lookups, Notion) is delegated to **Codex** rather than a
+separate bridge. The old standalone `gemini` server (`mcp_gemini.py`, backed by
+the Antigravity `agy` CLI) has been **removed**; its two jobs now live as tools on
+`mcp_codex.py`, reusing the same one-shot `codex exec` fork mechanism. Recover the
+deleted Gemini server from git history if it is ever wanted back.
 
 > **When to use (both cloud and local):** whenever an answer depends on facts
 > outside the agent's own knowledge — anything post-cutoff, any
 > "latest"/release/version/pricing claim, or any external fact the agent is not
-> certain of — query `gemini` *before* answering, rather than answering from
-> memory or guessing. `ask_gemini_web` for web-grounded lookups, `ask_gemini`
-> otherwise. This rule is mirrored in the global `CLAUDE.md` / `AGENTS.md`.
+> certain of — query `web_rag` *before* answering, rather than answering from
+> memory or guessing. This rule is mirrored in the global `CLAUDE.md` / `AGENTS.md`.
 
-| Tool                      | Use for                                                                       |
-| ------------------------- | ----------------------------------------------------------------------------- |
-| `ask_gemini_web(query)` | External info: current facts, docs, release notes — Gemini web search, cited |
-| `ask_gemini(prompt)`    | Reasoning / summarization / drafting without forced web search                |
+| Tool                      | Use for                                                                                 |
+| ------------------------- | --------------------------------------------------------------------------------------- |
+| `web_rag(query, repo)`    | External info: current facts, docs, release notes — `codex exec -c tools.web_search=true`, cited URLs   |
+| `notion_page(task, repo)` | Create or update Notion pages via the Notion MCP registered in Codex's config           |
 
-- **No API key.** Reuses the OAuth credentials under `~/.gemini` that `agy`
-  already holds (works on enterprise accounts where an API key cannot be minted).
-- **`stdin=DEVNULL` is required** when shelling out — otherwise `agy` inherits
-  the MCP host's JSON-RPC stdin and hangs. (Already handled in the server.)
-- **Model is pinned to a Gemini model** (`Gemini 3.5 Flash (Low)` — low effort
-  to stay under the tight token limit). `agy`'s own default is off-brand here
-  (`Claude Opus 4.6 (Thinking)`). Override with `AGY_MODEL` (see `agy models`);
-  set `AGY_MODEL=` empty to fall back to `agy`'s configured default.
-- Other env: `AGY_BIN` (binary path), `AGY_WORKDIR` (cwd, default `~/rep`),
-  `AGY_TIMEOUT` (wall-clock cap, default 300s).
-- Latency: `agy` cold-starts its language server each call, so expect
-  ~7 s (`ask_gemini`) to ~20–30 s (`ask_gemini_web`).
+- **Web search** uses Codex's native Responses `web_search` tool, enabled per call
+  with `codex exec -c tools.web_search=true`. The run is `read-only` — Codex searches and reasons
+  but never edits the repo.
+- **Notion** works because Codex's `~/.codex/config.toml` registers the Notion MCP
+  (`[mcp_servers.notion]` → `https://mcp.notion.com/mcp`). A `notion_page` fork can
+  search the workspace, create pages, and edit existing ones; all writes go to
+  Notion through the MCP, not to the repo (so it too runs `read-only` on the FS).
+- **No extra auth.** Reuses the Codex login on the host (`~/.codex`) and the Notion
+  MCP's own OAuth; no API key to mint.
+- Env: shares `mcp_codex.py`'s knobs (`CODEX_BIN`, `CODEX_FORK_BASE`,
+  `CODEX_MODEL`, `CODEX_FORK_TIMEOUT`).
 
-Register globally (this is the primary MCP — keep it on in both cloud and local
-modes):
-
-```bash
-claude mcp add -s user gemini python3 $REP/ollama/mcp_gemini.py
-codex mcp add gemini -- python3 $REP/ollama/mcp_gemini.py
-```
+No separate registration — these ship with the already-registered `codex` server
+(`claude mcp add -s user codex python3 $REP/ollama/mcp_codex.py`).
 
 ---
 
@@ -1059,18 +1052,17 @@ exceeds the 2,048-token output limit.
 
 Each `mcp_localllm.py` call appends a JSONL record (timestamp, source, tool,
 model, token counts, latency) to `usage_localllm.log` (override with
-`LOCALLLM_USAGE_LOG`); `mcp_gemini.py` writes the same schema to
-`usage_gemini.log` (override with `AGY_USAGE_LOG`); `mcp_codex.py` writes it to
-`usage_codex.log` (override with `CODEX_FORK_USAGE_LOG`). Gemini and Codex rows
-have null token fields — neither `agy` nor `codex exec` reports token counts —
+`LOCALLLM_USAGE_LOG`); `mcp_codex.py` writes the same schema to
+`usage_codex.log` (override with `CODEX_FORK_USAGE_LOG`). Codex rows
+have null token fields — `codex exec` does not report token counts —
 so token columns reflect local-LLM usage only, while call/latency columns cover
-all three. `usage_report.py` reads all three logs at once:
+both. `usage_report.py` reads both logs at once:
 
 ```bash
-python3 ollama/usage_report.py                  # all three logs, source / tool table
-python3 ollama/usage_report.py --by source      # group by source (localllm / gemini / codex)
+python3 ollama/usage_report.py                  # both logs, source / tool table
+python3 ollama/usage_report.py --by source      # group by source (localllm / codex)
 python3 ollama/usage_report.py --by tool        # group by tool
 python3 ollama/usage_report.py --by day         # group by day
 python3 ollama/usage_report.py --json           # machine-readable totals
-python3 ollama/usage_report.py usage_gemini.log # one explicit file
+python3 ollama/usage_report.py usage_codex.log  # one explicit file
 ```

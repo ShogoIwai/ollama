@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-"""Aggregate local LLM + Gemini + Codex usage.
+"""Aggregate local LLM + Codex usage.
 
-Reads the JSONL logs written by mcp_localllm.py (usage_localllm.log),
-mcp_gemini.py (usage_gemini.log), and mcp_codex.py (usage_codex.log) and prints
-a summary of call counts, token consumption, and latency. All logs share the
-same schema; Gemini and Codex rows have null token fields (agy / codex exec do
-not report token counts), so token columns reflect local-LLM usage only while
-call/latency columns cover all three.
+Reads the JSONL logs written by mcp_localllm.py (usage_localllm.log) and
+mcp_codex.py (usage_codex.log) and prints a summary of call counts, token
+consumption, and latency. Both logs share the same schema; Codex rows have null
+token fields (codex exec does not report token counts), so token columns reflect
+local-LLM usage only while call/latency columns cover both.
 
 Usage:
     python3 usage_report.py                      # both default logs
-    python3 usage_report.py usage_gemini.log     # one explicit file
+    python3 usage_report.py usage_codex.log      # one explicit file
     python3 usage_report.py a.log b.log          # several files
     python3 usage_report.py --by source          # group by source only
     python3 usage_report.py --by tool            # group by tool only
@@ -25,7 +24,7 @@ import os
 import sys
 from collections import defaultdict
 
-DEFAULT_LOGS = ["usage_localllm.log", "usage_gemini.log", "usage_codex.log"]
+DEFAULT_LOGS = ["usage_localllm.log", "usage_codex.log"]
 
 
 def _source_from_path(path):
