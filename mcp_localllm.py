@@ -165,21 +165,6 @@ def _chat(system: str, user: str, tool: str = "_chat") -> str:
 
 
 @mcp.tool()
-def ask_local(prompt: str) -> str:
-    """Ask the local LLM a general question or request.
-
-    Use this for lightweight tasks to save Claude API tokens:
-    - Drafting boilerplate code or test cases
-    - Explaining a short code snippet
-    - Summarizing text
-    - Translating comments or variable names
-    - Answering simple factual questions about code patterns
-    Do NOT use for tasks requiring file system access, tool use, or multi-step reasoning.
-    """
-    return _chat("You are a helpful coding assistant.", prompt, tool="ask_local")
-
-
-@mcp.tool()
 def ask_local_code(language: str, prompt: str) -> str:
     """Ask the local LLM to write or refactor code in a specific language.
 
@@ -196,6 +181,21 @@ def ask_local_code(language: str, prompt: str) -> str:
         "Use concise, idiomatic style."
     )
     return _chat(system, prompt, tool="ask_local_code")
+
+
+@mcp.tool()
+def ask_local(prompt: str) -> str:
+    """Ask the local LLM a general question or request.
+
+    Use this for lightweight tasks to save Claude API tokens:
+    - Drafting boilerplate code or test cases
+    - Explaining a short code snippet
+    - Summarizing text
+    - Translating comments or variable names
+    - Answering simple factual questions about code patterns
+    Do NOT use for tasks requiring file system access, tool use, or multi-step reasoning.
+    """
+    return _chat("You are a helpful coding assistant.", prompt, tool="ask_local")
 
 
 if __name__ == "__main__":

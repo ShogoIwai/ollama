@@ -20,11 +20,10 @@ the multi-repo root, so the side-by-side-clones constraint simply does not apply
 and because each call is a fresh stateless `codex exec` there is no session to
 share or merge.
 
-Beyond forking code tasks, this server is also the host's external-access path
-(it absorbs what the old `gemini` server did): `web_rag` answers questions with
-live web search (`codex exec -c tools.web_search=true`), and `notion_page` creates/updates Notion
-pages through the Notion MCP that Codex has registered in its config. Both reuse
-the same one-shot `codex exec` fork mechanism.
+Beyond forking code tasks, this server also provides external-access tools:
+`web_rag` answers questions with live web search (`codex exec -c tools.web_search=true`),
+and `notion_page` creates/updates Notion pages through the Notion MCP that Codex has
+registered in its config. Both reuse the same one-shot `codex exec` fork mechanism.
 
 Auth/model: reuses the Codex login already on the host (`~/.codex`). The model is
 whatever Codex is configured to use (GPT-5.5 by default) unless CODEX_MODEL pins
@@ -63,8 +62,8 @@ CODEX_MODEL = os.environ.get("CODEX_MODEL", "") or None
 # Wall-clock cap for one fork (seconds). Codex tasks can be long; default 30 min.
 TIMEOUT = int(os.environ.get("CODEX_FORK_TIMEOUT", "1800"))
 
-# Usage log: one JSONL record per call, same schema as mcp_gemini.py /
-# mcp_localllm.py so usage_report.py can aggregate all three.
+# Usage log: one JSONL record per call, same schema as the other servers
+# so usage_report.py can aggregate all sources.
 USAGE_LOG = (
     os.environ.get("CODEX_FORK_USAGE_LOG")
     or os.path.join(os.path.dirname(os.path.abspath(__file__)), "usage_codex.log")
@@ -196,8 +195,7 @@ def web_rag(query: str, repo: str = "") -> str:
     knowledge: anything post-cutoff, any "latest"/release/version/pricing claim,
     library/API docs, or any external fact you are not certain of. Codex runs its
     native `web_search` tool, reads the results, and returns an up-to-date answer
-    with source URLs. This is the external-access path (it replaces the old
-    `gemini` server); prefer it over answering from memory.
+    with source URLs.
 
     The run is read-only -- Codex never edits the repo, it only searches and
     reasons. `repo` just supplies a working root for the fork (defaults apply).
