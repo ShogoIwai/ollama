@@ -738,6 +738,32 @@ codex                                    # cloud (default profile)
 
 ## MCP Integration
 
+> **Who this is for: primarily running Claude Code on the local LLM.** The MCP
+> servers here exist mainly to make a **local** Claude Code session workable, not
+> to offload subtasks off a cloud session. Two properties drive that:
+>
+> 1. **Claude Code shares one resume/context across cloud and local.** Unlike Codex
+>    (whose cloud and local-profile runs keep separate `/resume` lists — see
+>    [Codex](#codex)), a Claude Code conversation can be carried between cloud and
+>    local mode via static switching ([cloud / local static switching](#cloud--local-static-switching)),
+>    so the same working context is reusable either way. That low-friction
+>    cloud↔local switch is what makes driving Claude Code on the local model
+>    practical in the first place.
+> 2. **The local model has no external access — `codex` fills that gap.** Running
+>    locally, Claude Code cannot reach the web or post-cutoff facts. The `codex`
+>    MCP server is the bridge: `web_rag` for live web search, `notion_page` for
+>    Notion writes, and `fork_to_codex` / `ask_codex` to hand a whole bounded task
+>    to the cloud model when the local model can't cover it. In **cloud** mode none
+>    of this is strictly necessary — if you ignore token cost, cloud Claude Code can
+>    do it all itself; the bridge earns its keep specifically in **local** mode.
+>
+> **Operating model.** Cross-**session** context is pooled in Notion (via
+> `notion_page` / the Notion MCP) and pulled back in as needed; anything the local
+> model can't cover — external facts, harder reasoning, a self-contained task — is
+> checked against the cloud Codex itself or the web, and where it makes sense the
+> whole task is forked to Codex (`fork_to_codex`). The local model is the default
+> driver; `codex` is the escape hatch to cloud accuracy and the outside world.
+
 > **Scope:** three stdio MCP servers ship here, with very different standing:
 >
 > - **`codex` (`mcp_codex.py`) — task-fork bridge.** Forks a self-contained task
@@ -749,7 +775,7 @@ codex                                    # cloud (default profile)
 >   The same server is also the host's **external-access bridge**: `web_rag`
 >   (`codex exec -c tools.web_search=true`, live web search with cited sources) and `notion_page`
 >   (create/update Notion pages through the Notion MCP registered in Codex's
->   config). These absorb what the old `gemini` server did — query `web_rag`
+>   config). Query `web_rag`
 >   whenever an answer depends on facts outside the model's knowledge (anything
 >   post-cutoff, any "latest"/release/version/pricing claim) rather than guessing.
 > - **`localllm` (`mcp_localllm.py`) — deprecated, register on demand only.** Its
@@ -866,8 +892,7 @@ fork, both `read-only` on the filesystem (`repo` only supplies the fork's workin
 root) — Codex searches/writes *externally* but never edits the repo. They reuse
 the Codex login (`~/.codex`) and the same env knobs (`CODEX_BIN`,
 `CODEX_FORK_BASE`, `CODEX_MODEL`, `CODEX_FORK_TIMEOUT`); no extra auth or
-registration. They absorb what the old standalone `gemini` server
-(`mcp_gemini.py`) did — removed, recover from git history if wanted.
+registration.
 
 **`web_rag`** uses Codex's native Responses `web_search` tool
 (`codex exec -c tools.web_search=true`), returning up-to-date answers with cited
