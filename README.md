@@ -218,20 +218,20 @@ marker to fall back to the `qwen3.6:35b-a3b-mtp-q4_K_M` default.
 
 ## Directory Contents
 
-| File                                         | Role                                                                                                                                                                                                                                                         |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `up_version.csh`                           | Reinstall Ollama to the latest release, stop/disable the systemd unit, and print the version (manual update helper)                                                                                                                                          |
-| `start_ollama_qwen36_35b.sh`               | Thin launcher for `qwen3.6:35b-a3b-mtp-q4_K_M` (default; Qwen3.6-35B-A3B MoE, ~3B active, thinking-capable; override `MODEL=qwen3.6:35b` for non-MTP)                                                                                                    |
-| `start_ollama_qwen36_uncensored_vision.sh` | Thin launcher for `fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:Q4` (optional; uncensored derivative of the default that **keeps vision** — handles image/PDF input; ~125 tok/s, Codex profile `ollama-qwen36-uncensored-vision`) |
-| `start_ollama_lfm25_wsl.sh`                | Thin launcher for `LiquidAI/lfm2.5-1.2b-instruct:q4_k_m` on a WSL / GPU-less host (CPU; default WSL model); **tool-capable** (structured `tool_calls`), so it can drive direct connect (see [WSL / low-memory (CPU)](#wsl--low-memory-cpu))           |
-| `_ollama_serve_common.sh`                  | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in `~/.ollama_active_model`                                                                                                                     |
-| `source_local` / `.csh`                  | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local                                                                                                                                                                         |
-| `source_cloud` / `.csh`                  | CLOUD mode: unset those env vars and `unalias claude`/`codex`                                                                                                                                                                                            |
+| File                                         | Role                                                                                                                                                                                                                                                                                                                                                                                    |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `up_version.csh`                           | Reinstall Ollama to the latest release, stop/disable the systemd unit, and print the version (manual update helper)                                                                                                                                                                                                                                                                     |
+| `start_ollama_qwen36_35b.sh`               | Thin launcher for `qwen3.6:35b-a3b-mtp-q4_K_M` (default; Qwen3.6-35B-A3B MoE, ~3B active, thinking-capable; override `MODEL=qwen3.6:35b` for non-MTP)                                                                                                                                                                                                                               |
+| `start_ollama_qwen36_uncensored_vision.sh` | Thin launcher for `fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:Q4` (optional; uncensored derivative of the default that **keeps vision** — handles image/PDF input; ~125 tok/s, Codex profile `ollama-qwen36-uncensored-vision`)                                                                                                                            |
+| `start_ollama_lfm25_wsl.sh`                | Thin launcher for `LiquidAI/lfm2.5-1.2b-instruct:q4_k_m` on a WSL / GPU-less host (CPU; default WSL model); **tool-capable** (structured `tool_calls`), so it can drive direct connect (see [WSL / low-memory (CPU)](#wsl--low-memory-cpu))                                                                                                                                      |
+| `_ollama_serve_common.sh`                  | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in `~/.ollama_active_model`                                                                                                                                                                                                                                                |
+| `source_local` / `.csh`                  | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local                                                                                                                                                                                                                                                                                                    |
+| `source_cloud` / `.csh`                  | CLOUD mode: unset those env vars and `unalias claude`/`codex`                                                                                                                                                                                                                                                                                                                       |
 | `mcp_codex.py`                             | MCP server that forks a task from Claude Code into a one-shot Codex (GPT-5.5) run pinned to a single repo as its sandbox (`fork_to_codex` / `ask_codex`), and the host's external-access path: `web_rag` (live web search) + `notion_page` (create/update Notion pages via the Notion MCP) — see [Codex task fork via MCP](#codex-task-fork-via-mcp-each-repo-as-its-own-sandbox) |
-| `mcp_localllm.py`                          | MCP server exposing the active local model as `ask_local` / `ask_local_code` tools (**deprecated**; register on demand for local-model debugging only)                                                                                             |
-| `usage_report.py`                          | Aggregate local LLM **and** Codex usage from `usage_localllm.log` + `usage_codex.log`                                                                                                                                |
-| `usage_codex.log`                          | JSONL usage records written by `mcp_codex.py` (gitignored)                                                                                                                                                                                                 |
-| `usage_localllm.log`                       | JSONL usage records written by `mcp_localllm.py` (gitignored)                                                                                                                                                                                              |
+| `mcp_localllm.py`                          | MCP server exposing the active local model as `ask_local` / `ask_local_code` tools (**deprecated**; register on demand for local-model debugging only)                                                                                                                                                                                                                        |
+| `usage_report.py`                          | Aggregate local LLM**and** Codex usage from `usage_localllm.log` + `usage_codex.log`                                                                                                                                                                                                                                                                                          |
+| `usage_codex.log`                          | JSONL usage records written by `mcp_codex.py` (gitignored)                                                                                                                                                                                                                                                                                                                            |
+| `usage_localllm.log`                       | JSONL usage records written by `mcp_localllm.py` (gitignored)                                                                                                                                                                                                                                                                                                                         |
 
 ---
 
@@ -822,8 +822,9 @@ The `-C <repo>` flag makes that single repository Codex's entire working root �
 ### Why fork through Claude Code (the two constraints it dissolves)
 
 This repo's workspace is a launch root (`~/rep`) holding **many independently
-cloned repositories side by side**, not one git repo. Two long-standing problems
-came from that, and the fork model removes both at the source:
+cloned repositories side by side**, not one git repo. This rule is mirrored in the global `CLAUDE.md` / `AGENTS.md`. 
+
+Two long-standing problems came from that, and the fork model removes both at the source:
 
 1. **The multi-repo root constraint becomes a non-issue for Codex.** Because every
    fork is pinned with `-C <repo>`, Codex only ever sees one real git working
@@ -844,12 +845,12 @@ context that originated in a (possibly local) Claude Code run.
 
 ### Tools
 
-| Tool                                   | Sandbox             | Use for                                                                                                                     |
-| -------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `fork_to_codex(task, repo, sandbox)` | `workspace-write` | Hand off a bounded coding task (implement / refactor / fix) that should run**inside one repo**. Codex edits the repo. |
-| `ask_codex(question, repo)`          | `read-only`       | Read-only question about a repo — explanation, review, "where/how is X here". No edits.                                    |
+| Tool                                   | Sandbox             | Use for                                                                                                                                       |
+| -------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fork_to_codex(task, repo, sandbox)` | `workspace-write` | Hand off a bounded coding task (implement / refactor / fix) that should run**inside one repo**. Codex edits the repo.                   |
+| `ask_codex(question, repo)`          | `read-only`       | Read-only question about a repo — explanation, review, "where/how is X here". No edits.                                                      |
 | `web_rag(query, repo)`               | `read-only`       | External-access path: live web search (`codex exec -c tools.web_search=true`) with cited sources. Use for anything post-cutoff or "latest". |
-| `notion_page(task, repo)`            | `read-only`       | Create or update Notion pages via the Notion MCP registered in Codex's config. Writes go to Notion, not the repo.          |
+| `notion_page(task, repo)`            | `read-only`       | Create or update Notion pages via the Notion MCP registered in Codex's config. Writes go to Notion, not the repo.                             |
 
 `repo` is resolved relative to `CODEX_FORK_BASE` (default `~/rep`) or accepts an
 absolute path; **that repo is the sandbox**. Each call is **one-shot and
@@ -857,39 +858,45 @@ stateless** — put everything Codex needs in `task`/`question`; it cannot see t
 Claude Code conversation. `sandbox` accepts `read-only`, `workspace-write`
 (default), or `danger-full-access`.
 
-### External access: web & Notion (`web_rag` / `notion_page`)
+### External access: web search (`web_rag`) and Notion (`notion_page`)
 
-Outward access (web lookups, Notion) is **folded into `mcp_codex.py`** rather than
-a separate bridge: `web_rag` and `notion_page` are just two more tools on the same
-one-shot `codex exec` fork, so Codex itself is the external-access path. The old
-standalone `gemini` server (`mcp_gemini.py`, backed by the Antigravity `agy` CLI)
-has been **removed**; recover it from git history if ever wanted back. Both tools
-run `read-only` on the filesystem — Codex searches/writes externally but never
-edits the repo (`repo` only supplies the fork's working root).
+Outward access is **folded into `mcp_codex.py`** rather than a separate bridge:
+`web_rag` and `notion_page` are two more tools on the same one-shot `codex exec`
+fork, both `read-only` on the filesystem (`repo` only supplies the fork's working
+root) — Codex searches/writes *externally* but never edits the repo. They reuse
+the Codex login (`~/.codex`) and the same env knobs (`CODEX_BIN`,
+`CODEX_FORK_BASE`, `CODEX_MODEL`, `CODEX_FORK_TIMEOUT`); no extra auth or
+registration. They absorb what the old standalone `gemini` server
+(`mcp_gemini.py`) did — removed, recover from git history if wanted.
+
+**`web_rag`** uses Codex's native Responses `web_search` tool
+(`codex exec -c tools.web_search=true`), returning up-to-date answers with cited
+URLs.
 
 > **When to use `web_rag` (both cloud and local):** whenever an answer depends on
 > facts outside the agent's own knowledge — anything post-cutoff, any
 > "latest"/release/version/pricing claim, or any external fact the agent is not
 > certain of — query `web_rag` *before* answering, rather than answering from
-> memory or guessing. This rule is mirrored in the global `CLAUDE.md` / `AGENTS.md`.
+> memory or guessing.
 
-- **Web search** uses Codex's native Responses `web_search` tool, enabled per call
-  with `codex exec -c tools.web_search=true`; it returns up-to-date answers with
-  cited URLs.
-- **Notion** works because Codex's `~/.codex/config.toml` registers the Notion MCP
-  (`[mcp_servers.notion]` → `https://mcp.notion.com/mcp`). A `notion_page` fork can
-  search the workspace, create pages, and edit existing ones; all writes go to
-  Notion through the MCP, not the repo.
-- **No extra auth.** Reuses the Codex login on the host (`~/.codex`) and the Notion
-  MCP's own OAuth; no API key to mint. Env knobs are shared with the other fork
-  tools (`CODEX_BIN`, `CODEX_FORK_BASE`, `CODEX_MODEL`, `CODEX_FORK_TIMEOUT`), and
-  no separate registration is needed — these ship with the already-registered
-  `codex` server.
+**`notion_page`** writes through the Notion MCP that Codex registers in its own
+config (`[mcp_servers.notion]` → `https://mcp.notion.com/mcp`); the tool itself
+holds no Notion logic, so the same offload is reachable via `ask_codex` with a
+Notion task in the prompt — `notion_page` exists only to label the write intent
+(`ask_codex` advertises read-only). Low-frequency by design; the setup below is
+the one irreproducible part worth keeping.
+
+Register the Notion MCP with Codex once (adds `[mcp_servers.notion]` to
+`~/.codex/config.toml`), then complete its OAuth:
+
+```bash
+codex mcp add notion --url https://mcp.notion.com/mcp
+codex mcp login notion        # OAuth in the browser; grants page access
+```
 
 > **Required Notion config — auto-approve, OAuth connector only.** Because the fork
 > runs `codex exec` **non-interactively** (`stdin` is closed), any MCP tool call
-> that needs per-call approval is auto-**cancelled** (`user cancelled MCP tool
-> call`). So the OAuth `notion` connector must be set to auto-approve in
+> that needs per-call approval is auto-**cancelled** (`user cancelled MCP tool call`). So the OAuth `notion` connector must be set to auto-approve in
 > `~/.codex/config.toml`:
 >
 > ```toml
@@ -973,32 +980,6 @@ session's SID.
 > terminal session that launched Claude Code share the SID and would also be
 > killed. In practice that trade-off is acceptable — intentional long-running `rg`
 > searches in the same terminal as an active Claude Code session are rare.
-
-### What was reset, and why
-
-The previous "Codex stop-review-gate rg Process Lingering Issue" section built an
-elaborate per-turn machinery on top of the `stop-review-gate` hook: a cloud-vs-local
-**default/alternative** review-routing policy, prompt-template edits
-(`{{CLAUDE_RESPONSE_BLOCK}}`, the `<git_scope_rules>` / "review on the local model"
-blocks kept in sync across two prompt copies), and a table of GitHub-independent
-review options.
-
-That whole stack has been **reset**. It existed to (a) stop the root-level `rg .`
-fallback and (b) get a cloud-model accuracy check over closed local work. The
-[Codex task fork via MCP](#codex-task-fork-via-mcp-each-repo-as-its-own-sandbox)
-above addresses both more directly:
-
-- **(a)** is gone by construction — forks are pinned to one repo with `-C`, so the
-  root-level `git`/`rg .` fallback never runs. Only the rg-cleanup `Stop` hook is
-  retained, as insurance.
-- **(b)** becomes an **explicit, per-task** call (`ask_codex` / `fork_to_codex` on
-  the cloud GPT-5.5 model) instead of an implicit per-turn hook and synced prompt
-  edits.
-
-The "operate at the second level or deeper" rule and the `/codex:review --cwd`
-corollary still live in `~/.claude/CLAUDE.md` as the canonical git-scope guidance;
-they are no longer duplicated here. If the implicit stop-review-gate is ever wanted
-back, recover it from git history.
 
 ---
 
