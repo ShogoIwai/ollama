@@ -209,7 +209,7 @@ def web_rag(query: str, repo: str = "") -> str:
 
 
 @mcp.tool()
-def notion_page(task: str, repo: str = "") -> str:
+def notion_page(task: str, repo: str = "", page_id: str = "") -> str:
     """Create or update Notion pages via Codex (GPT-5.5) + the Notion MCP.
 
     Codex has the Notion MCP server (`mcp.notion.com`) registered in its config,
@@ -219,9 +219,16 @@ def notion_page(task: str, repo: str = "") -> str:
     the full intent -- target location/page, title, and the exact content -- in
     `task`; the call is one-shot and cannot see this conversation.
 
+    If `page_id` is provided, Codex will use the Notion MCP to target that specific
+    page by ID (preferred over URLs or titles for reliability). Without it, Codex
+    searches the workspace by title or URL from the task string.
+
     Runs read-only on the filesystem: all writes go to Notion through the MCP,
     not to the repo. `repo` only supplies a working root for the fork.
     """
+    if page_id:
+        # Prepend page ID hint so Codex targets by ID instead of searching
+        task = f"Target page_id: {page_id}. {task}"
     return _run_codex(task, repo=repo, sandbox="read-only", tool="notion_page")
 
 
