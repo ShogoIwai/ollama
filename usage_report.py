@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Aggregate local LLM + Codex usage.
+"""Aggregate local LLM + Codex + Claude usage.
 
-Reads the JSONL logs written by mcp_localllm.py (usage_localllm.log) and
-mcp_codex.py (usage_codex.log) and prints a summary of call counts, token
-consumption, and latency. Both logs share the same schema; Codex rows have null
-token fields (codex exec does not report token counts), so token columns reflect
-local-LLM usage only while call/latency columns cover both.
+Reads the JSONL logs written by mcp_localllm.py (usage_localllm.log),
+mcp_codex.py (usage_codex.log), and mcp_claude.py (usage_claude.log) and prints
+a summary of call counts, token consumption, and latency. All logs share the
+same schema; Codex and Claude rows have null token fields (neither reports token
+counts), so token columns reflect local-LLM usage only while call/latency
+columns cover all sources.
 
 Usage:
     python3 usage_report.py                      # both default logs
@@ -24,7 +25,7 @@ import os
 import sys
 from collections import defaultdict
 
-DEFAULT_LOGS = ["usage_localllm.log", "usage_codex.log"]
+DEFAULT_LOGS = ["usage_localllm.log", "usage_codex.log", "usage_claude.log"]
 
 
 def _source_from_path(path):

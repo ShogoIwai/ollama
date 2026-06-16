@@ -20,10 +20,9 @@ the multi-repo root, so the side-by-side-clones constraint simply does not apply
 and because each call is a fresh stateless `codex exec` there is no session to
 share or merge.
 
-Beyond forking code tasks, this server also provides external-access tools:
+Beyond forking code tasks, this server also provides an external-access tool:
 `web_rag` answers questions with live web search (`codex exec -c tools.web_search=true`),
-and `notion_page` creates/updates Notion pages through the Notion MCP that Codex has
-registered in its config. Both reuse the same one-shot `codex exec` fork mechanism.
+reusing the same one-shot `codex exec` fork mechanism.
 
 Auth/model: reuses the Codex login already on the host (`~/.codex`). The model is
 whatever Codex is configured to use (GPT-5.5 by default) unless CODEX_MODEL pins
@@ -206,30 +205,6 @@ def web_rag(query: str, repo: str = "") -> str:
     )
     return _run_codex(grounded, repo=repo, sandbox="read-only",
                       tool="web_rag", search=True)
-
-
-@mcp.tool()
-def notion_page(task: str, repo: str = "", page_id: str = "") -> str:
-    """Create or update Notion pages via Codex (GPT-5.5) + the Notion MCP.
-
-    Codex has the Notion MCP server (`mcp.notion.com`) registered in its config,
-    so a fork can search the workspace, create new pages, and edit existing ones.
-    Use this to make a new page ("create a page titled X under Y with ...") or to
-    update one ("append/replace section Z on page <url-or-title> with ..."). Put
-    the full intent -- target location/page, title, and the exact content -- in
-    `task`; the call is one-shot and cannot see this conversation.
-
-    If `page_id` is provided, Codex will use the Notion MCP to target that specific
-    page by ID (preferred over URLs or titles for reliability). Without it, Codex
-    searches the workspace by title or URL from the task string.
-
-    Runs read-only on the filesystem: all writes go to Notion through the MCP,
-    not to the repo. `repo` only supplies a working root for the fork.
-    """
-    if page_id:
-        # Prepend page ID hint so Codex targets by ID instead of searching
-        task = f"Target page_id: {page_id}. {task}"
-    return _run_codex(task, repo=repo, sandbox="read-only", tool="notion_page")
 
 
 if __name__ == "__main__":

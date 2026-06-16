@@ -227,7 +227,8 @@ marker to fall back to the `qwen3.6:35b-a3b-mtp-q4_K_M` default.
 | `_ollama_serve_common.sh`                  | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in `~/.ollama_active_model`                                                                                                                                                                                                                                                |
 | `source_local` / `.csh`                  | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local                                                                                                                                                                                                                                                                                                    |
 | `source_cloud` / `.csh`                  | CLOUD mode: unset those env vars and `unalias claude`/`codex`                                                                                                                                                                                                                                                                                                                       |
-| `mcp_codex.py`                             | MCP server that forks a task from Claude Code into a one-shot Codex (GPT-5.5) run pinned to a single repo as its sandbox (`fork_to_codex` / `ask_codex`), and the host's external-access path: `web_rag` (live web search) + `notion_page` (create/update Notion pages via the Notion MCP) — see [Codex task fork via MCP](#codex-task-fork-via-mcp-each-repo-as-its-own-sandbox) |
+| `mcp_codex.py`                             | MCP server that forks a task from Claude Code into a one-shot Codex (GPT-5.5) run pinned to a single repo as its sandbox (`fork_to_codex` / `ask_codex`), plus `web_rag` (live web search) — see [Codex task fork via MCP](#codex-task-fork-via-mcp-each-repo-as-its-own-sandbox) |
+| `mcp_claude.py`                            | MCP server that forks a task from this Claude Code session into a one-shot headless `claude -p` run pinned to a single repo (`fork_to_claude` / `ask_claude`), plus `web_rag` (live web search via Claude Code's built-in WebSearch/WebFetch) — see [Claude task fork via MCP](#claude-task-fork-via-mcp)                                                                       |
 | `mcp_localllm.py`                          | MCP server exposing the active local model as `ask_local` / `ask_local_code` tools (**deprecated**; register on demand for local-model debugging only)                                                                                                                                                                                                                        |
 | `usage_report.py`                          | Aggregate local LLM**and** Codex usage from `usage_localllm.log` + `usage_codex.log`                                                                                                                                                                                                                                                                                          |
 | `usage_codex.log`                          | JSONL usage records written by `mcp_codex.py` (gitignored)                                                                                                                                                                                                                                                                                                                            |
@@ -738,9 +739,11 @@ codex                                    # cloud (default profile)
 
 ## MCP Integration
 
-> **Who this is for: primarily running Claude Code on the local LLM.** The MCP
-> servers here exist mainly to make a **local** Claude Code session workable, not
-> to offload subtasks off a cloud session. Two properties drive that:
+> **Who this is for: primarily running Claude Code on the local LLM.** The
+> `claude` and `codex` MCP servers here are fundamentally an **extension layer for
+> a Claude Code + local-LLM setup** — they exist to make a **local** Claude Code
+> session workable (give it external access and a cloud escape hatch), not to
+> offload subtasks off a cloud session. Two properties drive that:
 >
 > 1. **Claude Code shares one resume/context across cloud and local.** Unlike Codex
 >    (whose cloud and local-profile runs keep separate `/resume` lists — see
@@ -749,35 +752,52 @@ codex                                    # cloud (default profile)
 >    so the same working context is reusable either way. That low-friction
 >    cloud↔local switch is what makes driving Claude Code on the local model
 >    practical in the first place.
-> 2. **The local model has no external access — `codex` fills that gap.** Running
->    locally, Claude Code cannot reach the web or post-cutoff facts. The `codex`
->    MCP server is the bridge: `web_rag` for live web search, `notion_page` for
->    Notion writes, and `fork_to_codex` / `ask_codex` to hand a whole bounded task
->    to the cloud model when the local model can't cover it. In **cloud** mode none
->    of this is strictly necessary — if you ignore token cost, cloud Claude Code can
->    do it all itself; the bridge earns its keep specifically in **local** mode.
+> 2. **The local model has no external access — `claude`/`codex` fill that gap.**
+>    Running locally, Claude Code cannot reach the web or post-cutoff facts. The
+>    `codex` MCP server is the bridge: `web_rag` for live web search, and
+>    `fork_to_codex` / `ask_codex` to hand a whole bounded task to the cloud model
+>    when the local model can't cover it. The `claude` MCP server is the parallel
+>    Claude-side extension — `web_rag` (Claude Code's built-in WebSearch/WebFetch)
+>    plus `fork_to_claude` / `ask_claude` forking to a headless `claude -p`. (Notion writes are still reachable by
+>    handing a Notion task to `ask_codex` — the Notion MCP stays registered in
+>    Codex's config — there is just no longer a dedicated `notion_page` tool.) In
+>    **cloud** mode none of this is strictly necessary — if you ignore token cost,
+>    cloud Claude Code can do it all itself; the bridge earns its keep specifically
+>    in **local** mode.
 >
-> **Operating model.** Cross-**session** context is pooled in Notion (via
-> `notion_page` / the Notion MCP) and pulled back in as needed; anything the local
-> model can't cover — external facts, harder reasoning, a self-contained task — is
-> checked against the cloud Codex itself or the web, and where it makes sense the
-> whole task is forked to Codex (`fork_to_codex`). The local model is the default
-> driver; `codex` is the escape hatch to cloud accuracy and the outside world.
+> **Operating model.** Cross-**session** context is pooled in Notion (via a Notion
+> task handed to `ask_codex` / the Notion MCP) and pulled back in as needed;
+> anything the local model can't cover — external facts, harder reasoning, a
+> self-contained task — is checked against the cloud Codex itself or the web, and
+> where it makes sense the whole task is forked to Codex (`fork_to_codex`). The
+> local model is the default driver; `codex` is the escape hatch to cloud accuracy
+> and the outside world.
 
-> **Scope:** three stdio MCP servers ship here, with very different standing:
+> **Scope:** three stdio MCP servers ship here, with very different standing.
+> `claude` and `codex` are the **extension layer for a Claude Code + local-LLM
+> setup** (external access + cloud/cross-model escape hatch); `localllm` is a
+> deprecated local-model debug path:
 >
+> - **`claude` (`mcp_claude.py`) — Claude-side task-fork + web extension.** Forks a
+>   self-contained task from this Claude Code session into a one-shot headless
+>   `claude -p` run pinned to a single repo (`fork_to_claude` / `ask_claude`), and
+>   provides `web_rag` via Claude Code's built-in WebSearch/WebFetch. See
+>   [Claude task fork via MCP](#claude-task-fork-via-mcp). The `claude -p` fork also
+>   routes onto the plan's separate Agent SDK credit (Bucket 2) once Anthropic
+>   activates it (currently paused).
 > - **`codex` (`mcp_codex.py`) — task-fork bridge.** Forks a self-contained task
 >   from Claude Code into a one-shot Codex (GPT-5.5) run pinned to a single repo
 >   as its sandbox (`fork_to_codex` / `ask_codex`). This is the
 >   [accuracy/cross-model review path](#codex-task-fork-via-mcp-each-repo-as-its-own-sandbox)
 >   and the way Codex sidesteps both the multi-repo launch root and its own
 >   cloud/local session-sharing limits.
->   The same server is also the host's **external-access bridge**: `web_rag`
->   (`codex exec -c tools.web_search=true`, live web search with cited sources) and `notion_page`
->   (create/update Notion pages through the Notion MCP registered in Codex's
->   config). Query `web_rag`
+>   The same server is also the host's **external-access bridge** via `web_rag`
+>   (`codex exec -c tools.web_search=true`, live web search with cited sources).
+>   Query `web_rag`
 >   whenever an answer depends on facts outside the model's knowledge (anything
 >   post-cutoff, any "latest"/release/version/pricing claim) rather than guessing.
+>   (Notion writes are still reachable by giving a Notion task to `ask_codex`; the
+>   former dedicated `notion_page` tool has been removed.)
 > - **`localllm` (`mcp_localllm.py`) — deprecated, register on demand only.** Its
 >   path is **single-shot** (no history), so it cannot share Claude Code's
 >   working context; that need is served better by a **separate terminal**
@@ -823,6 +843,50 @@ codex mcp add localllm -- python3 $REP/ollama/mcp_localllm.py
 
 Verify in Claude Code with `/mcp` (expect `localllm` connected) and call
 `ask_local`. Remove it again with `claude mcp remove localllm` when done.
+
+---
+
+## Claude task fork via MCP
+
+`mcp_claude.py` is the Claude-side analogue of the Codex fork: it forks a
+self-contained task from this Claude Code session into a **one-shot, headless
+`claude -p` run** pinned to a single repo, with the same one-shot/stateless,
+single-repo-as-sandbox model as `mcp_codex.py` (put everything the fork needs in
+the `task`; it cannot see this conversation).
+
+The billing angle: under Anthropic's 2026 "bucket" pricing, `claude -p` / Agent
+SDK usage draws from a **separate monthly credit (Bucket 2)** rather than the
+shared interactive subscription limit (Bucket 1), so forking work to `claude -p`
+moves it off the interactive limit — once Anthropic activates that credit (rollout
+**paused** as of 2026-06-15; see the module docstring). The server intentionally
+inherits the parent's auth as-is (no injected `ANTHROPIC_API_KEY` / separate config
+dir), because injecting a key would switch the fork to pure API-token billing and
+forfeit the included Bucket 2 credit.
+
+### Tools
+
+| Tool                                            | Permission mode | Use for                                                                                                                |
+| ----------------------------------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `fork_to_claude(task, repo, permission_mode)` | `acceptEdits`   | Hand off a bounded coding task that should run **inside one repo**; the fork may edit the repo (`plan` = read-only). |
+| `ask_claude(question, repo)`                  | `plan`          | Read-only question about a repo — explanation, review, "where/how is X here". No edits.                               |
+| `web_rag(query, repo)`                        | `plan`          | Live web search via Claude Code's built-in WebSearch/WebFetch, returning an up-to-date answer with cited URLs.         |
+
+`repo` is resolved relative to `CLAUDE_FORK_BASE` (default `~/rep`) or accepts an
+absolute path; **that repo is the fork's working root** (`cwd` + `--add-dir`).
+`web_rag` here mirrors the Codex `web_rag` but runs on `claude -p` with
+`--permission-mode plan` (read-only) — use it when Claude Code itself should do the
+web grounding rather than forking to Codex.
+
+### Register in Claude Code
+
+```bash
+claude mcp add -s user claude python3 $REP/ollama/mcp_claude.py
+```
+
+Environment overrides mirror the Codex server: `CLAUDE_BIN`, `CLAUDE_FORK_BASE`,
+`CLAUDE_FORK_DEFAULT_REPO`, `CLAUDE_FORK_MODEL`, `CLAUDE_FORK_TIMEOUT` (default
+`1800`), and `CLAUDE_FORK_USAGE_LOG` (JSONL, `source: "claude"`, same schema as the
+other servers → `usage_claude.log`).
 
 ---
 
@@ -876,7 +940,6 @@ context that originated in a (possibly local) Claude Code run.
 | `fork_to_codex(task, repo, sandbox)` | `workspace-write` | Hand off a bounded coding task (implement / refactor / fix) that should run**inside one repo**. Codex edits the repo.                   |
 | `ask_codex(question, repo)`          | `read-only`       | Read-only question about a repo — explanation, review, "where/how is X here". No edits.                                                      |
 | `web_rag(query, repo)`               | `read-only`       | External-access path: live web search (`codex exec -c tools.web_search=true`) with cited sources. Use for anything post-cutoff or "latest". |
-| `notion_page(task, repo, page_id)`   | `read-only`       | Create or update Notion pages via the Notion MCP registered in Codex's config. Pass `page_id` to target a specific page by ID. Writes go to Notion, not the repo. |
 
 `repo` is resolved relative to `CODEX_FORK_BASE` (default `~/rep`) or accepts an
 absolute path; **that repo is the sandbox**. Each call is **one-shot and
@@ -884,15 +947,14 @@ stateless** — put everything Codex needs in `task`/`question`; it cannot see t
 Claude Code conversation. `sandbox` accepts `read-only`, `workspace-write`
 (default), or `danger-full-access`.
 
-### External access: web search (`web_rag`) and Notion (`notion_page`)
+### External access: web search (`web_rag`) and Notion (via `ask_codex`)
 
 Outward access is **folded into `mcp_codex.py`** rather than a separate bridge:
-`web_rag` and `notion_page` are two more tools on the same one-shot `codex exec`
-fork, both `read-only` on the filesystem (`repo` only supplies the fork's working
-root) — Codex searches/writes *externally* but never edits the repo. They reuse
-the Codex login (`~/.codex`) and the same env knobs (`CODEX_BIN`,
-`CODEX_FORK_BASE`, `CODEX_MODEL`, `CODEX_FORK_TIMEOUT`); no extra auth or
-registration.
+`web_rag` is one more tool on the same one-shot `codex exec` fork, `read-only` on
+the filesystem (`repo` only supplies the fork's working root) — Codex searches
+*externally* but never edits the repo. It reuses the Codex login (`~/.codex`) and
+the same env knobs (`CODEX_BIN`, `CODEX_FORK_BASE`, `CODEX_MODEL`,
+`CODEX_FORK_TIMEOUT`); no extra auth or registration.
 
 **`web_rag`** uses Codex's native Responses `web_search` tool
 (`codex exec -c tools.web_search=true`), returning up-to-date answers with cited
@@ -904,15 +966,15 @@ URLs.
 > certain of — query `web_rag` *before* answering, rather than answering from
 > memory or guessing.
 
-**`notion_page`** writes through the Notion MCP that Codex registers in its own
-config (`[mcp_servers.notion]` → `https://mcp.notion.com/mcp`); the tool itself
-holds no Notion logic, so the same offload is reachable via `ask_codex` with a
-Notion task in the prompt — `notion_page` exists only to label the write intent
-(`ask_codex` advertises read-only). Pass the optional `page_id` to target an
-existing page by ID (prepended to the task as a hint, more reliable than a URL or
-title); omit it to have Codex search the workspace by title/URL from the task
-string. Low-frequency by design; the setup below is the one irreproducible part
-worth keeping.
+**Notion writes (via `ask_codex`).** There is **no longer a dedicated
+`notion_page` tool** — it was removed because it held no Notion logic of its own.
+The Notion MCP that Codex registers in its config (`[mcp_servers.notion]` →
+`https://mcp.notion.com/mcp`) is still available, so Notion writes are reachable
+by handing a Notion task to `ask_codex` (e.g. "create a page titled X under Y with
+…" / "append section Z to page <url-or-id> with …"). Put the full intent —
+target page (by ID or URL/title), title, and exact content — in the question;
+referencing a page by ID is more reliable than a URL or title. Low-frequency by
+design; the setup below is the one irreproducible part worth keeping.
 
 Register the Notion MCP with Codex once (adds `[mcp_servers.notion]` to
 `~/.codex/config.toml`), then complete its OAuth:
@@ -933,10 +995,11 @@ codex mcp login notion        # OAuth in the browser; grants page access
 > default_tools_approval_mode = "approve"   # "approve" = auto-approve (values: auto | prompt | approve)
 > ```
 >
-> Without it, `notion_page` returns `user cancelled MCP tool call`. Do **not** rely
-> on the Bearer-token `codex_apps` managed connector — it lacks page access and
-> returns `UNAUTHORIZED`; phrase the `task` to use the OAuth `notion` connector
-> explicitly. Verified end-to-end (append + delete on a target page).
+> Without it, an `ask_codex` Notion write returns `user cancelled MCP tool call`.
+> Do **not** rely on the Bearer-token `codex_apps` managed connector — it lacks
+> page access and returns `UNAUTHORIZED`; phrase the question to use the OAuth
+> `notion` connector explicitly. Verified end-to-end (append + delete on a target
+> page).
 
 ### How it routes to the cloud model
 
