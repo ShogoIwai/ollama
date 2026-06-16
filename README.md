@@ -876,7 +876,7 @@ context that originated in a (possibly local) Claude Code run.
 | `fork_to_codex(task, repo, sandbox)` | `workspace-write` | Hand off a bounded coding task (implement / refactor / fix) that should run**inside one repo**. Codex edits the repo.                   |
 | `ask_codex(question, repo)`          | `read-only`       | Read-only question about a repo — explanation, review, "where/how is X here". No edits.                                                      |
 | `web_rag(query, repo)`               | `read-only`       | External-access path: live web search (`codex exec -c tools.web_search=true`) with cited sources. Use for anything post-cutoff or "latest". |
-| `notion_page(task, repo)`            | `read-only`       | Create or update Notion pages via the Notion MCP registered in Codex's config. Writes go to Notion, not the repo.                             |
+| `notion_page(task, repo, page_id)`   | `read-only`       | Create or update Notion pages via the Notion MCP registered in Codex's config. Pass `page_id` to target a specific page by ID. Writes go to Notion, not the repo. |
 
 `repo` is resolved relative to `CODEX_FORK_BASE` (default `~/rep`) or accepts an
 absolute path; **that repo is the sandbox**. Each call is **one-shot and
@@ -908,8 +908,11 @@ URLs.
 config (`[mcp_servers.notion]` → `https://mcp.notion.com/mcp`); the tool itself
 holds no Notion logic, so the same offload is reachable via `ask_codex` with a
 Notion task in the prompt — `notion_page` exists only to label the write intent
-(`ask_codex` advertises read-only). Low-frequency by design; the setup below is
-the one irreproducible part worth keeping.
+(`ask_codex` advertises read-only). Pass the optional `page_id` to target an
+existing page by ID (prepended to the task as a hint, more reliable than a URL or
+title); omit it to have Codex search the workspace by title/URL from the task
+string. Low-frequency by design; the setup below is the one irreproducible part
+worth keeping.
 
 Register the Notion MCP with Codex once (adds `[mcp_servers.notion]` to
 `~/.codex/config.toml`), then complete its OAuth:
