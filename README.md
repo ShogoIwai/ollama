@@ -1,5 +1,3 @@
-Code: generation, refactoring, unit-test skeletons, stubs, code translation
-
 # Local LLM Workflow — Ollama + Claude Code + Codex
 
 `ollama/` provides a local LLM environment for Claude Code and Codex,
@@ -126,7 +124,7 @@ Two integration paths — test whichever you intend to use:
 
 A model that emits tool calls as plain-text JSON in `content` (e.g. small Gemma)
 is **MCP-only** — see the tool-calling caveat in
-[WSL / low-memory (CPU)](#use-the-mcp-path-not-direct-connect). Note speed
+[WSL / low-memory (CPU)](#wsl--low-memory-cpu). Note speed
 (`tok/s`), resident VRAM, and whether tool calls land.
 
 ### 6. Adopt or drop
@@ -228,7 +226,7 @@ marker to fall back to the `qwen3.6:35b-a3b-mtp-q4_K_M` default.
 | `source_local` / `.csh`                  | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local                                                                                                                                                                                                                                                                                                    |
 | `source_cloud` / `.csh`                  | CLOUD mode: unset those env vars and `unalias claude`/`codex`                                                                                                                                                                                                                                                                                                                       |
 | `mcp_codex.py`                             | MCP server that forks a task from Claude Code into a one-shot Codex (GPT-5.5) run pinned to a single repo as its sandbox (`fork_to_codex` / `ask_codex`), plus `web_rag` (live web search) — see [Codex task fork via MCP](#codex-task-fork-via-mcp-each-repo-as-its-own-sandbox) |
-| `mcp_claude.py`                            | MCP server that forks a task from this Claude Code session into a one-shot headless `claude -p` run pinned to a single repo (`fork_to_claude` / `ask_claude`), plus `web_rag` (live web search via Claude Code's built-in WebSearch/WebFetch) — see [Claude task fork via MCP](#claude-task-fork-via-mcp)                                                                       |
+| `mcp_claude.py`                            | **Agent SDK** task-fork server (separate from the local-LLM extension layer): forks a task from this Claude Code session into a one-shot headless `claude -p` run pinned to a single repo (`fork_to_claude` / `ask_claude`), plus `web_rag` (live web search via Claude Code's built-in WebSearch/WebFetch) — see [Claude task fork via MCP](#claude-task-fork-via-mcp)                                                                       |
 | `mcp_localllm.py`                          | MCP server exposing the active local model as `ask_local` / `ask_local_code` tools (**deprecated**; register on demand for local-model debugging only)                                                                                                                                                                                                                        |
 | `usage_report.py`                          | Aggregate local LLM**and** Codex usage from `usage_localllm.log` + `usage_codex.log`                                                                                                                                                                                                                                                                                          |
 | `usage_codex.log`                          | JSONL usage records written by `mcp_codex.py` (gitignored)                                                                                                                                                                                                                                                                                                                            |
@@ -507,7 +505,7 @@ RAM is tight (MCP-only / small tasks then). Both `MODEL` and
 
 ### Integration: MCP path (primary) + limited direct connect
 
-On WSL the **always-safe integration is the [MCP path](#mcp-integration)**
+On WSL the **always-safe integration is the [`localllm` debug path](#local-model-bridge-mcp_localllmpy--deprecated-on-demand)**
 (`ask_local` / `ask_local_code`) — text-in/text-out, which small models handle
 well, and which doubles as the local-model debug entry point. With the default
 `lfm2.5-1.2b-instruct`, **direct connect also works** (it reports `tools` and
@@ -739,11 +737,14 @@ codex                                    # cloud (default profile)
 
 ## MCP Integration
 
-> **Who this is for: primarily running Claude Code on the local LLM.** The
-> `claude` and `codex` MCP servers here are fundamentally an **extension layer for
-> a Claude Code + local-LLM setup** — they exist to make a **local** Claude Code
-> session workable (give it external access and a cloud escape hatch), not to
-> offload subtasks off a cloud session. Two properties drive that:
+> **Who this is for: primarily running Claude Code on the local LLM.** For that
+> purpose the **`codex` MCP server is the extension layer** — it exists to make a
+> **local** Claude Code session workable (give it external access and a cloud
+> escape hatch), not to offload subtasks off a cloud session. The `claude` MCP
+> server is **not** part of this local-LLM extension layer; it is a separate
+> **Agent SDK** path (`claude -p`, Bucket 2 billing — see
+> [Claude task fork via MCP](#claude-task-fork-via-mcp)) and is out of scope here.
+> Two properties drive the local-LLM case:
 >
 > 1. **Claude Code shares one resume/context across cloud and local.** Unlike Codex
 >    (whose cloud and local-profile runs keep separate `/resume` lists — see
@@ -752,13 +753,11 @@ codex                                    # cloud (default profile)
 >    so the same working context is reusable either way. That low-friction
 >    cloud↔local switch is what makes driving Claude Code on the local model
 >    practical in the first place.
-> 2. **The local model has no external access — `claude`/`codex` fill that gap.**
+> 2. **The local model has no external access — `codex` fills that gap.**
 >    Running locally, Claude Code cannot reach the web or post-cutoff facts. The
 >    `codex` MCP server is the bridge: `web_rag` for live web search, and
 >    `fork_to_codex` / `ask_codex` to hand a whole bounded task to the cloud model
->    when the local model can't cover it. The `claude` MCP server is the parallel
->    Claude-side extension — `web_rag` (Claude Code's built-in WebSearch/WebFetch)
->    plus `fork_to_claude` / `ask_claude` forking to a headless `claude -p`. (Notion writes are still reachable by
+>    when the local model can't cover it. (Notion writes are still reachable by
 >    handing a Notion task to `ask_codex` — the Notion MCP stays registered in
 >    Codex's config — there is just no longer a dedicated `notion_page` tool.) In
 >    **cloud** mode none of this is strictly necessary — if you ignore token cost,
@@ -774,18 +773,13 @@ codex                                    # cloud (default profile)
 > and the outside world.
 
 > **Scope:** three stdio MCP servers ship here, with very different standing.
-> `claude` and `codex` are the **extension layer for a Claude Code + local-LLM
-> setup** (external access + cloud/cross-model escape hatch); `localllm` is a
+> For the **Claude Code + local-LLM** setup the extension layer is **`codex` only**
+> (external access + cloud/cross-model escape hatch); `claude` is a separate
+> **Agent SDK** path that stands apart from the local-LLM workflow; `localllm` is a
 > deprecated local-model debug path:
 >
-> - **`claude` (`mcp_claude.py`) — Claude-side task-fork + web extension.** Forks a
->   self-contained task from this Claude Code session into a one-shot headless
->   `claude -p` run pinned to a single repo (`fork_to_claude` / `ask_claude`), and
->   provides `web_rag` via Claude Code's built-in WebSearch/WebFetch. See
->   [Claude task fork via MCP](#claude-task-fork-via-mcp). The `claude -p` fork also
->   routes onto the plan's separate Agent SDK credit (Bucket 2) once Anthropic
->   activates it (currently paused).
-> - **`codex` (`mcp_codex.py`) — task-fork bridge.** Forks a self-contained task
+> - **`codex` (`mcp_codex.py`) — local-LLM extension / task-fork bridge.** This is
+>   the server the local-LLM workflow uses. Forks a self-contained task
 >   from Claude Code into a one-shot Codex (GPT-5.5) run pinned to a single repo
 >   as its sandbox (`fork_to_codex` / `ask_codex`). This is the
 >   [accuracy/cross-model review path](#codex-task-fork-via-mcp-each-repo-as-its-own-sandbox)
@@ -804,6 +798,15 @@ codex                                    # cloud (default profile)
 >   running `source_local` + `claude --model` with a shared resume. Use `localllm`
 >   only as an optional debugging path for the loaded Ollama model when you
 >   explicitly want to exercise it — it is **not registered by default**.
+> - **`claude` (`mcp_claude.py`) — Agent SDK path (outside the local-LLM workflow).**
+>   Forks a self-contained task from this Claude Code session into a one-shot
+>   headless `claude -p` run pinned to a single repo (`fork_to_claude` /
+>   `ask_claude`), plus `web_rag` via Claude Code's built-in WebSearch/WebFetch.
+>   Its reason to exist is **billing, not local-LLM extension**: the `claude -p`
+>   fork routes onto the plan's separate **Agent SDK credit (Bucket 2)** once
+>   Anthropic activates it (currently paused). When the local-LLM extension layer
+>   is what you need, reach for `codex`, not this. See
+>   [Claude task fork via MCP](#claude-task-fork-via-mcp).
 >
 > None of these is a token-saving subtask-delegation layer; the cloud-vs-local
 > decision is made up front by static switching (see
@@ -848,11 +851,19 @@ Verify in Claude Code with `/mcp` (expect `localllm` connected) and call
 
 ## Claude task fork via MCP
 
-`mcp_claude.py` is the Claude-side analogue of the Codex fork: it forks a
-self-contained task from this Claude Code session into a **one-shot, headless
-`claude -p` run** pinned to a single repo, with the same one-shot/stateless,
-single-repo-as-sandbox model as `mcp_codex.py` (put everything the fork needs in
-the `task`; it cannot see this conversation).
+> **Not part of the local-LLM extension layer.** Unlike `codex` (the bridge that
+> makes a **local** Claude Code session workable — see
+> [MCP Integration](#mcp-integration)), `mcp_claude.py` exists for the **Agent SDK**
+> use case: it forks work onto the `claude -p` / Agent SDK path for its own billing
+> reasons (Bucket 2, below), independent of whether the driving session runs on the
+> local model. When you want the local-LLM extension layer, use `codex` instead.
+
+`mcp_claude.py` shares the same one-shot fork *shape* as `mcp_codex.py` — but it
+belongs to the **Agent SDK** path, not the local-LLM extension layer (`codex`).
+It forks a self-contained task from this Claude Code session into a **one-shot,
+headless `claude -p` run** pinned to a single repo, one-shot/stateless and
+single-repo-as-sandbox (put everything the fork needs in the `task`; it cannot
+see this conversation).
 
 The billing angle: under Anthropic's 2026 "bucket" pricing, `claude -p` / Agent
 SDK usage draws from a **separate monthly credit (Bucket 2)** rather than the
@@ -874,8 +885,9 @@ forfeit the included Bucket 2 credit.
 `repo` is resolved relative to `CLAUDE_FORK_BASE` (default `~/rep`) or accepts an
 absolute path; **that repo is the fork's working root** (`cwd` + `--add-dir`).
 `web_rag` here mirrors the Codex `web_rag` but runs on `claude -p` with
-`--permission-mode plan` (read-only) — use it when Claude Code itself should do the
-web grounding rather than forking to Codex.
+`--permission-mode plan` (read-only) — within the Agent SDK workflow, use it when
+the `claude -p` fork should do its own web grounding. For the local-LLM extension
+layer, the external-access path is the `codex` server's `web_rag`, not this one.
 
 ### Register in Claude Code
 
@@ -892,9 +904,8 @@ other servers → `usage_claude.log`).
 
 ## Codex task fork via MCP (each repo as its own sandbox)
 
-> **Status: this supersedes the old `stop-review-gate` rg/review machinery.** That
-> section has been **reset** (see [What was reset, and why](#what-was-reset-and-why)
-> at the end). The only piece carried forward from it is the rg-cleanup `Stop`
+> **Status: this supersedes the old `stop-review-gate` rg/review machinery,** which
+> has been **reset**. The only piece carried forward from it is the rg-cleanup `Stop`
 > hook, kept purely as insurance — see
 > [Insurance: rg-cleanup `Stop` hook](#insurance-keep-the-claude-code-rg-cleanup-stop-hook).
 
