@@ -75,8 +75,9 @@ export _LOCALLLM_SOURCED=1   # sentinel: in LOCAL mode (see auto-reset block abo
 # --- Local-mode aliases (cleared by source_cloud) ---
 # claude: env already points at Ollama; alias just pins the model name.
 # codex : no shared env (OPENAI_* intentionally unset), so the profile flag is
-#         what actually selects local. Plain `codex` (no alias) stays cloud.
+#         what actually selects local. Disable the OAuth Notion MCP only for this
+#         local alias; plain `codex` stays cloud and keeps the global MCP config.
 alias claude="claude --model ${LOCALLLM_MODEL}"
-alias codex="codex --profile ${LOCALLLM_CODEX_PROFILE}"
+alias codex="codex --profile ${LOCALLLM_CODEX_PROFILE} -c mcp_servers.notion.enabled=false"
 
 echo "[ollama] LOCAL mode: claude/codex aliased to local (model: ${LOCALLLM_MODEL}, codex profile: ${LOCALLLM_CODEX_PROFILE})"

@@ -593,10 +593,10 @@ source ollama/source_local                 # claude alias → claude --model qwe
 
 The two env files resolve the aliases at source time:
 
-| Alias                                                    | Why                                                                           |
-| -------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `claude` → `claude --model $LOCALLLM_MODEL`         | env already targets Ollama; the alias just pins the model name                |
-| `codex` → `codex --profile $LOCALLLM_CODEX_PROFILE` | Codex shares no env (OPENAI_* stays unset), so the profile flag selects local |
+| Alias                                                                                         | Why                                                                                                                 |
+| --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `claude` → `claude --model $LOCALLLM_MODEL`                                              | env already targets Ollama; the alias just pins the model name                                                      |
+| `codex` → `codex --profile $LOCALLLM_CODEX_PROFILE -c mcp_servers.notion.enabled=false` | Codex shares no env (OPENAI_* stays unset), so the profile flag selects local; Notion MCP is disabled only locally |
 
 `source_local` also exports `LOCALLLM_MODEL` / `LOCALLLM_CODEX_PROFILE` so the
 choice is visible to subprocesses; `source_cloud` unsets both along with the
@@ -633,11 +633,15 @@ claude                             # alias cleared → cloud default
 
 ### Codex
 
-`source_local` aliases `codex` → `codex --profile $LOCALLLM_CODEX_PROFILE`;
-`source_cloud` clears it so `codex` is cloud again. You can still invoke either
-explicitly (`codex --profile ollama-local` / `codex`) regardless of which file is
-sourced. By default `LOCALLLM_CODEX_PROFILE` is **auto-derived from the detected
-`LOCALLLM_MODEL`** (see the auto-detection note above):
+`source_local` aliases `codex` →
+`codex --profile $LOCALLLM_CODEX_PROFILE -c mcp_servers.notion.enabled=false`;
+`source_cloud` clears it so `codex` is cloud again. The `-c` override disables
+the OAuth Notion MCP only for local LLM runs, avoiding repeated Notion
+re-authentication while leaving the normal cloud `codex` command on the global
+Notion MCP setting. You can still invoke either explicitly
+(`codex --profile ollama-local -c mcp_servers.notion.enabled=false` / `codex`)
+regardless of which file is sourced. By default `LOCALLLM_CODEX_PROFILE` is
+**auto-derived from the detected `LOCALLLM_MODEL`** (see the auto-detection note above):
 `fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:*` ⇒ `ollama-qwen36-uncensored-vision`,
 `qwen3.6:*` ⇒ `ollama-qwen36-35b`, otherwise ⇒ `ollama-local` (one
 explicit case per model). To force a specific profile, set
@@ -711,4 +715,3 @@ codex --profile ollama-qwen36-35b        # local qwen3.6:35b-a3b (loads ollama-q
 codex --profile ollama-qwen36-uncensored-vision # local Uncensored + vision (loads ollama-qwen36-uncensored-vision.config.toml)
 codex                                    # cloud (default profile)
 ```
-
