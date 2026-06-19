@@ -5,8 +5,7 @@ built on **Ollama**. The default local model is
 **`qwen3.6:35b-a3b-mtp-q4_K_M`** (thinking-capable MoE, ~3B active), with its own
 thin launcher (`start_ollama_qwen36_35b.sh`) sharing one core
 (`_ollama_serve_common.sh`); additional models can be added with the procedure
-below, each as one more 2-line launcher. The MCP
-server auto-detects whichever is loaded; the harness direct-connect picks the
+below, each as one more 2-line launcher. The harness direct-connect picks the
 model by the `LOCALLLM_MODEL` env var (see
 [cloud / local static switching](#cloud--local-static-switching)). It replaces
 the former `vllm/` (vLLM +
@@ -88,13 +87,13 @@ If you want a `claude --model` / `codex --profile` shortcut for it, also add:
   `model = "<tag>"` and `model_provider = "ollama-local"` (see [Codex](#codex)).
 
 This is optional for a first smoke test — auto-detection from the marker already
-makes `source_local` track the launched tag, and the MCP path needs no profile.
+makes `source_local` track the launched tag.
 
 ### 4. Restart the daemon on the new model
 
 Only one daemon binds `:11434`, so stop the running launcher and start the new
-one. The launcher records the tag in `~/.ollama_active_model`, which the MCP
-server and `source_local` then auto-detect.
+one. The launcher records the tag in `~/.ollama_active_model`, which
+`source_local` then auto-detects.
 
 ```bash
 # stop the currently running launcher (Ctrl-C in its foreground, or kill the serve)
@@ -107,13 +106,8 @@ weights+KV cache overflowed 24 GB — drop the quant or `OLLAMA_CONTEXT_LENGTH`.
 
 ### 5. Verify it works
 
-Two integration paths — test whichever you intend to use:
+Test the integration path:
 
-- **MCP path** (always safe, text-in/text-out):
-  ```bash
-  # in Claude Code / Codex with the localllm MCP server registered:
-  #   call ask_local("…")  /  ask_local_code("…")  and confirm a sane reply
-  ```
 - **Direct-connect agentic backend** (only if the model reports `tools`
   capability and emits structured tool calls):
   ```bash
@@ -123,7 +117,7 @@ Two integration paths — test whichever you intend to use:
   ```
 
 A model that emits tool calls as plain-text JSON in `content` (e.g. small Gemma)
-is **MCP-only** — see the tool-calling caveat in
+cannot drive direct connect — see the tool-calling caveat in
 [WSL / low-memory (CPU)](#wsl--low-memory-cpu). Note speed
 (`tok/s`), resident VRAM, and whether tool calls land.
 
@@ -225,12 +219,6 @@ marker to fall back to the `qwen3.6:35b-a3b-mtp-q4_K_M` default.
 | `_ollama_serve_common.sh`                  | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in `~/.ollama_active_model`                                                                                                                                                                                                                                            |
 | `source_local` / `.csh`                  | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local                                                                                                                                                                                                                                                                                                |
 | `source_cloud` / `.csh`                  | CLOUD mode: unset those env vars and `unalias claude`/`codex`                                                                                                                                                                                                                                                                                                                   |
-| `mcp_codex.py`                             | MCP server that forks a task from Claude Code into a one-shot Codex (GPT-5.5) run pinned to a single repo as its sandbox (`fork_to_codex` / `ask_codex`), plus `web_rag` (live web search) — see [Codex task fork via MCP](#codex-task-fork-via-mcp-each-repo-as-its-own-sandbox)                                                                                               |
-| `mcp_claude.py`                            | **Agent SDK** task-fork server (separate from the local-LLM extension layer): forks a task from this Claude Code session into a one-shot headless `claude -p` run pinned to a single repo (`fork_to_claude` / `ask_claude`), plus `web_rag` (live web search via Claude Code's built-in WebSearch/WebFetch) — see [Claude task fork via MCP](#claude-task-fork-via-mcp) |
-| `mcp_localllm.py`                          | MCP server exposing the active local model as `ask_local` / `ask_local_code` tools (**deprecated**; register on demand for local-model debugging only)                                                                                                                                                                                                                    |
-| `usage_report.py`                          | Aggregate local LLM**and** Codex usage from `usage_localllm.log` + `usage_codex.log`                                                                                                                                                                                                                                                                                      |
-| `usage_codex.log`                          | JSONL usage records written by `mcp_codex.py` (gitignored)                                                                                                                                                                                                                                                                                                                        |
-| `usage_localllm.log`                       | JSONL usage records written by `mcp_localllm.py` (gitignored)                                                                                                                                                                                                                                                                                                                     |
 
 ---
 
@@ -286,7 +274,7 @@ lives once in the common file. The wrapper:
   the selected `MODEL` if missing, then keeps the daemon in the foreground.
 
 > Only one daemon binds `:11434`. To switch which model serves, stop the running
-> launcher and start the other; the MCP server then auto-detects the newly
+> launcher and start the other; `source_local` then auto-detects the newly
 > loaded model. Run both side by side only if you give each its own
 > `OLLAMA_HOST` port.
 
@@ -355,9 +343,8 @@ the structural ceiling on heavy long-document / multi-step reasoning; lifting th
 on a 24 GB host would need a **dense** 27–32B (cf. the dropped dense Qwen3.6-27B at
 ~38 tok/s below for the speed cost).
 `/api/show` reports capabilities `['completion','vision','tools','thinking']`, so
-it is a candidate **direct-connect** agentic backend (`tools`) and the MCP path
-handles its `thinking` with `think:false` as usual — a full agentic tool-driving
-loop has not yet been exercised end-to-end here.
+it is a candidate **direct-connect** agentic backend (`tools`) — a full agentic
+tool-driving loop has not yet been exercised end-to-end here.
 
 > **Evaluated and dropped: Qwen3.6-27B (`qwen3.6:27b-mtp-q4_K_M`).** The **dense**
 > 27B sibling (`architecture qwen35`, 27.3B params, no `a3b` MoE sparsity) was
@@ -384,8 +371,7 @@ present** — projector is bundled), **100% GPU, 22 GB resident, 96000 context,
 leak); **both Claude Code and Codex were confirmed running on it via direct
 connect**. Caveats: it is a **non-official derivative** (weaker
 provenance/reproducibility than the Apache-2.0 default), and uncensored sampling
-defaults tend to be aggressive — the MCP path overrides temperature via
-`LOCALLLM_TEMPERATURE=0.2`, but direct connect inherits the bundled defaults.
+defaults tend to be aggressive — direct connect inherits the bundled defaults.
 Re-verify after any re-pull that capabilities still include `vision` (if the tag
 ever ships without the bundled projector, PDF/image silently breaks):
 
@@ -462,28 +448,27 @@ model **on CPU** instead.
 **Default: `LiquidAI/lfm2.5-1.2b-instruct:q4_k_m`** (LiquidAI LFM2.5, hybrid
 1.17B). Chosen over the former gemma3:4b default because it is **tool-capable**:
 it **emits a structured `tool_calls` block** (not plain-text JSON in `content`),
-so unlike gemma3 it can drive **direct connect** on WSL, not just the MCP path.
+so unlike gemma3 it can drive **direct connect** on WSL.
 Being a *hybrid* model (only 6 attention layers of 16) its KV cache stays small,
 so it holds its full **32K** native window on this 8 GB host. **Measured on the
 8 GB / 12-thread WSL host** (`start_ollama_lfm25_wsl.sh`, q4_k_m): `/api/show`
 capabilities `['tools','thinking','completion']`; **~0.9 GB resident, 100% CPU,
 ~40 tok/s**; a `get_weather` tool-call test returned a proper structured
 `tool_calls` (empty `content`), and a plain `think:false` chat returned clean
-`content` with no thinking leak (MCP path safe).
+`content` with no thinking leak.
 
 > Pick the **`-instruct`** build, **not** `lfm2.5-thinking`, which Ollama
 > publishes text-only / without tool support. Other small CPU-fit candidates
-> (gemma3:1b/4b, gemma2:2b, codegemma:2b) work via the MCP path but report no
+> (gemma3:1b/4b, gemma2:2b, codegemma:2b) report no
 > `tools` capability, so they cannot drive direct connect — hence the switch.
 
 | Model / tag                                        | Params | Resident (Q4)     | CPU tok/s     | tool_calls | Use for                                                |
 | -------------------------------------------------- | ------ | ----------------- | ------------- | ---------- | ------------------------------------------------------ |
-| **`LiquidAI/lfm2.5-1.2b-instruct:q4_k_m`** | 1.17B  | **~0.9 GB** | **~40** | structured | **WSL direct-connect tool use**, chat, MCP debug |
+| **`LiquidAI/lfm2.5-1.2b-instruct:q4_k_m`** | 1.17B  | **~0.9 GB** | **~40** | structured | **WSL direct-connect tool use**, chat |
 
 > **Direct connect is enabled but limited by model size.** Both clients launch
 > and Claude Code accepts a prompt, but a 1.2B model under Claude Code's ~23K-token
-> system prompt is weak in practice; the realistic main use on WSL is the **MCP
-> path** (`ask_local`) and light **Codex** tool tasks. Claude Code direct connect
+> system prompt is weak in practice; treat it as lightly usable. Claude Code direct connect
 > needs `OLLAMA_CONTEXT_LENGTH` ≥ ~32K just to fit the system prompt (the launcher
 > defaults to 32768 for this reason); set `CLAUDE_CODE_MAX_CONTEXT_TOKENS=32768`
 > before sourcing so the gauge matches the real window.
@@ -492,7 +477,7 @@ capabilities `['tools','thinking','completion']`; **~0.9 GB resident, 100% CPU,
 
 ```bash
 ./start_ollama_lfm25_wsl.sh            # LiquidAI/lfm2.5-1.2b-instruct:q4_k_m, ctx 32768
-#   OLLAMA_CONTEXT_LENGTH=8192 ./start_ollama_lfm25_wsl.sh    # tighter RAM / MCP-only
+#   OLLAMA_CONTEXT_LENGTH=8192 ./start_ollama_lfm25_wsl.sh    # tighter RAM
 #   MODEL=LiquidAI/lfm2.5-1.2b-instruct:q8_0 ./start_ollama_lfm25_wsl.sh   # ~1.2GB
 ```
 
@@ -500,28 +485,25 @@ Unlike the GPU launchers (which default `OLLAMA_CONTEXT_LENGTH=96000`), the WSL
 launcher defaults it to **32768** — the model's native ceiling, needed so Claude
 Code's ~23K-token system prompt fits on direct connect. LFM2.5's hybrid design
 keeps the KV cache small enough to hold 32K on this 8 GB host; drop to 8192 if
-RAM is tight (MCP-only / small tasks then). Both `MODEL` and
+RAM is tight (small tasks then). Both `MODEL` and
 `OLLAMA_CONTEXT_LENGTH` can be overridden before running.
 
-### Integration: MCP path (primary) + limited direct connect
+### Integration: direct connect
 
-On WSL the **always-safe integration is the [`localllm` debug path](#local-model-bridge-mcp_localllmpy--deprecated-on-demand)**
-(`ask_local` / `ask_local_code`) — text-in/text-out, which small models handle
-well, and which doubles as the local-model debug entry point. With the default
-`lfm2.5-1.2b-instruct`, **direct connect also works** (it reports `tools` and
+On WSL the integration is **direct connect** via the cloud/local env switch. With
+the default `lfm2.5-1.2b-instruct`, direct connect works (it reports `tools` and
 emits a structured `tool_calls` block), so Claude Code / Codex can in principle
 drive edits — but a 1.2B model is weak under their large system prompts, so treat
-direct connect as "runs, lightly usable" and keep the MCP path as the main use.
+direct connect as "runs, lightly usable."
 
-> **Tool-calling conversion caveat (for other WSL models).** A model that does
+> **Tool-calling caveat (for other WSL models).** A model that does
 > **not** report `tools` and emits the call as **plain-text JSON in `content`**
-> (e.g. the former gemma3:4b default) is **MCP-only**: the client cannot detect
-> the call and "hallucinates" edits that never reach disk. Such models would need
-> an Anthropic-emulating gateway (Bifrost / LiteLLM) plus attribution-header
-> suppression for direct connect; the MCP path avoids all of that. This is the
-> exact failure lfm2.5's structured `tool_calls` avoids — verify it with the
-> `/api/show` capabilities + a tool-call smoke test before adopting any new WSL
-> model for direct connect.
+> (e.g. the former gemma3:4b default) **cannot drive direct connect**: the client
+> cannot detect the call and "hallucinates" edits that never reach disk. Driving
+> such a model would need an Anthropic-emulating gateway (Bifrost / LiteLLM) plus
+> attribution-header suppression. This is the exact failure lfm2.5's structured
+> `tool_calls` avoids — verify it with the `/api/show` capabilities + a tool-call
+> smoke test before adopting any new WSL model for direct connect.
 
 ---
 
@@ -565,8 +547,6 @@ Net effect: **you compact manually** (`/compact` or `/clear`) when the honest
 gauge says you're near the limit, instead of being silently truncated. If you
 raise the Ollama window, set `CLAUDE_CODE_MAX_CONTEXT_TOKENS` to the new value
 **before** sourcing. `source_cloud` unsets both, so cloud mode is unaffected.
-The MCP path (`ask_local` / `ask_local_code`) is one request per call and never
-accumulates a conversation, so none of this applies there.
 
 ### Aliases set by `source_local`
 
@@ -625,8 +605,7 @@ self-reference is safe — bash/csh do not re-expand the leading word
 recursively.)
 
 > **Note:** `LOCALLLM_MODEL` selects the model for the **harness direct-connect**
-> (the `claude` alias). It is independent of the MCP server, which always
-> auto-detects the loaded model on its own. Make sure the model you point the
+> (the `claude` alias). Make sure the model you point the
 > alias at is actually the one the running launcher serves.
 
 > **Direct connect:** the WSL default `LiquidAI/lfm2.5-1.2b-instruct` also reports
@@ -733,427 +712,3 @@ codex --profile ollama-qwen36-uncensored-vision # local Uncensored + vision (loa
 codex                                    # cloud (default profile)
 ```
 
----
-
-## MCP Integration
-
-> **Who this is for: primarily running Claude Code on the local LLM.** For that
-> purpose the **`codex` MCP server is the extension layer** — it exists to make a
-> **local** Claude Code session workable (give it external access and a cloud
-> escape hatch), not to offload subtasks off a cloud session. The `claude` MCP
-> server is **not** part of this local-LLM extension layer; it is a separate
-> **Agent SDK** path (`claude -p`, Bucket 2 billing — see
-> [Claude task fork via MCP](#claude-task-fork-via-mcp)) and is out of scope here.
-> Two properties drive the local-LLM case:
->
-> 1. **Claude Code shares one resume/context across cloud and local.** Unlike Codex
->    (whose cloud and local-profile runs keep separate `/resume` lists — see
->    [Codex](#codex)), a Claude Code conversation can be carried between cloud and
->    local mode via static switching ([cloud / local static switching](#cloud--local-static-switching)),
->    so the same working context is reusable either way. That low-friction
->    cloud↔local switch is what makes driving Claude Code on the local model
->    practical in the first place.
-> 2. **The local model has no external access — `codex` fills that gap.**
->    Running locally, Claude Code cannot reach the web or post-cutoff facts. The
->    `codex` MCP server is the bridge: `web_rag` for live web search, and
->    `fork_to_codex` / `ask_codex` to hand a whole bounded task to the cloud model
->    when the local model can't cover it. (Notion writes are still reachable by
->    handing a Notion task to `ask_codex` — the Notion MCP stays registered in
->    Codex's config.) In
->    **cloud** mode none of this is strictly necessary — if you ignore token cost,
->    cloud Claude Code can do it all itself; the bridge earns its keep specifically
->    in **local** mode.
->
-> **Operating model.** Cross-**session** context is pooled in Notion (via a Notion
-> task handed to `ask_codex` / the Notion MCP) and pulled back in as needed;
-> anything the local model can't cover — external facts, harder reasoning, a
-> self-contained task — is checked against the cloud Codex itself or the web, and
-> where it makes sense the whole task is forked to Codex (`fork_to_codex`). The
-> local model is the default driver; `codex` is the escape hatch to cloud accuracy
-> and the outside world.
-
-> **Scope:** three stdio MCP servers ship here, with very different standing.
-> For the **Claude Code + local-LLM** setup the extension layer is **`codex` only**
-> (external access + cloud/cross-model escape hatch); `claude` is a separate
-> **Agent SDK** path that stands apart from the local-LLM workflow; `localllm` is a
-> deprecated local-model debug path:
->
-> - **`claude` (`mcp_claude.py`) — Agent SDK path (outside the local-LLM workflow).**
->   Forks a self-contained task from this Claude Code session into a one-shot
->   headless `claude -p` run pinned to a single repo (`fork_to_claude` /
->   `ask_claude`), plus `web_rag` via Claude Code's built-in WebSearch/WebFetch.
->   Its reason to exist is **billing, not local-LLM extension**: the `claude -p`
->   fork routes onto the plan's separate **Agent SDK credit (Bucket 2)** once
->   Anthropic activates it (currently paused). When the local-LLM extension layer
->   is what you need, reach for `codex`, not this. See
->   [Claude task fork via MCP](#claude-task-fork-via-mcp).
-> - **`codex` (`mcp_codex.py`) — local-LLM extension / task-fork bridge.** This is
->   the server the local-LLM workflow uses. Forks a self-contained task
->   from Claude Code into a one-shot Codex (GPT-5.5) run pinned to a single repo
->   as its sandbox (`fork_to_codex` / `ask_codex`). This is the
->   [accuracy/cross-model review path](#codex-task-fork-via-mcp-each-repo-as-its-own-sandbox)
->   and the way Codex sidesteps both the multi-repo launch root and its own
->   cloud/local session-sharing limits.
->   The same server is also the host's **external-access bridge** via `web_rag`
->   (`codex exec -c tools.web_search=true`, live web search with cited sources).
->   Query `web_rag`
->   whenever an answer depends on facts outside the model's knowledge (anything
->   post-cutoff, any "latest"/release/version/pricing claim) rather than guessing.
->   (Notion writes are still reachable by giving a Notion task to `ask_codex`.)
-> - **`localllm` (`mcp_localllm.py`) — deprecated, register on demand only.** Its
->   path is **single-shot** (no history), so it cannot share Claude Code's
->   working context; that need is served better by a **separate terminal**
->   running `source_local` + `claude --model` with a shared resume. Use `localllm`
->   only as an optional debugging path for the loaded Ollama model when you
->   explicitly want to exercise it — it is **not registered by default**.
->
-> None of these is a token-saving subtask-delegation layer; the cloud-vs-local
-> decision is made up front by static switching (see
-> [cloud / local static switching](#cloud--local-static-switching)), per whole
-> task, not per subtask. (`codex` differs in kind: it hands off a *whole*
-> bounded task to a different model, not a subtask of the current one.)
-
-### Dependency
-
-The server framework uses FastMCP, so the `mcp` package must be importable by
-the **same `python3`** that the client launches. The Ollama calls themselves use
-only the standard library; `mcp` is the one third-party requirement.
-
-```bash
-python3 -m pip install --user mcp        # once, for the python3 on PATH
-python3 -c 'import mcp'                   # verify (no output = OK)
-```
-
-> If the client runs a different interpreter, registration connects but tool
-> calls fail with `ModuleNotFoundError: No module named 'mcp'`. Install `mcp`
-> for that interpreter (or register with its absolute `python3` path).
-
-### Register (on demand only)
-
-> `localllm` is **deprecated** as an everyday tool and **not registered by
-> default** — see the [Scope](#mcp-integration) note above. Register it only when
-> you explicitly want to debug the loaded Ollama model, and prefer a
-> **session-scoped** add (`-s local`) so it does not linger in every project.
-
-```bash
-# Claude Code (session-scoped; drop -s for project, or -s user to pin globally)
-claude mcp add -s local localllm python3 $REP/ollama/mcp_localllm.py
-
-# Codex
-codex mcp add localllm -- python3 $REP/ollama/mcp_localllm.py
-```
-
-Verify in Claude Code with `/mcp` (expect `localllm` connected) and call
-`ask_local`. Remove it again with `claude mcp remove localllm` when done.
-
----
-
-## Claude task fork via MCP
-
-> **Not part of the local-LLM extension layer.** Unlike `codex` (the bridge that
-> makes a **local** Claude Code session workable — see
-> [MCP Integration](#mcp-integration)), `mcp_claude.py` exists for the **Agent SDK**
-> use case: it forks work onto the `claude -p` / Agent SDK path for its own billing
-> reasons (Bucket 2, below), independent of whether the driving session runs on the
-> local model. When you want the local-LLM extension layer, use `codex` instead.
-
-`mcp_claude.py` shares the same one-shot fork *shape* as `mcp_codex.py` — but it
-belongs to the **Agent SDK** path, not the local-LLM extension layer (`codex`).
-It forks a self-contained task from this Claude Code session into a **one-shot,
-headless `claude -p` run** pinned to a single repo, one-shot/stateless and
-single-repo-as-sandbox (put everything the fork needs in the `task`; it cannot
-see this conversation).
-
-The billing angle: under Anthropic's 2026 "bucket" pricing, `claude -p` / Agent
-SDK usage draws from a **separate monthly credit (Bucket 2)** rather than the
-shared interactive subscription limit (Bucket 1), so forking work to `claude -p`
-moves it off the interactive limit — once Anthropic activates that credit (rollout
-**paused** as of 2026-06-15; see the module docstring). The server intentionally
-inherits the parent's auth as-is (no injected `ANTHROPIC_API_KEY` / separate config
-dir), because injecting a key would switch the fork to pure API-token billing and
-forfeit the included Bucket 2 credit.
-
-### Tools
-
-| Tool                                            | Permission mode | Use for                                                                                                                     |
-| ----------------------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `fork_to_claude(task, repo, permission_mode)` | `acceptEdits` | Hand off a bounded coding task that should run**inside one repo**; the fork may edit the repo (`plan` = read-only). |
-| `ask_claude(question, repo)`                  | `plan`        | Read-only question about a repo — explanation, review, "where/how is X here". No edits.                                    |
-| `web_rag(query, repo)`                        | `plan`        | Live web search via Claude Code's built-in WebSearch/WebFetch, returning an up-to-date answer with cited URLs.              |
-
-`repo` is resolved relative to `CLAUDE_FORK_BASE` (default `~/rep`) or accepts an
-absolute path; **that repo is the fork's working root** (`cwd` + `--add-dir`).
-`web_rag` here mirrors the Codex `web_rag` but runs on `claude -p` with
-`--permission-mode plan` (read-only) — within the Agent SDK workflow, use it when
-the `claude -p` fork should do its own web grounding. For the local-LLM extension
-layer, the external-access path is the `codex` server's `web_rag`, not this one.
-
-### Register in Claude Code
-
-```bash
-claude mcp add -s user claude python3 $REP/ollama/mcp_claude.py
-```
-
-Environment overrides mirror the Codex server: `CLAUDE_BIN`, `CLAUDE_FORK_BASE`,
-`CLAUDE_FORK_DEFAULT_REPO`, `CLAUDE_FORK_MODEL`, `CLAUDE_FORK_TIMEOUT` (default
-`1800`), and `CLAUDE_FORK_USAGE_LOG` (JSONL, `source: "claude"`, same schema as the
-other servers → `usage_claude.log`).
-
----
-
-## Codex task fork via MCP (each repo as its own sandbox)
-
-> **Status: this supersedes the old `stop-review-gate` rg/review machinery,** which
-> has been **reset**. The only piece carried forward from it is the rg-cleanup `Stop`
-> hook, kept purely as insurance — see
-> [Insurance: rg-cleanup `Stop` hook](#insurance-keep-the-claude-code-rg-cleanup-stop-hook).
-
-`mcp_codex.py` lets Claude Code **fork a whole, self-contained task to Codex
-(GPT-5.5)**, with each fork pinned to **one repository as its sandbox**. It is a
-thin stdio MCP server (stdlib + FastMCP) that shells out to `codex exec`:
-
-```sh
-codex exec -C <repo> -s <sandbox> --skip-git-repo-check "<task>"
-```
-
-The `-C <repo>` flag makes that single repository Codex's entire working root —
-**that repo *is* the sandbox**.
-
-### Why fork through Claude Code (the two constraints it dissolves)
-
-This repo's workspace is a launch root (`~/rep`) holding **many independently
-cloned repositories side by side**, not one git repo. This rule is mirrored in the global `CLAUDE.md` / `AGENTS.md`.
-
-Two long-standing problems came from that, and the fork model removes both at the source:
-
-1. **The multi-repo root constraint becomes a non-issue for Codex.** Because every
-   fork is pinned with `-C <repo>`, Codex only ever sees one real git working
-   tree and never the root. The whole "operate at the second level or deeper /
-   `git` fails at the root / `rg .` fallback" problem (the original cause of the
-   lingering `rg` processes) **never arises** — Codex is structurally prevented
-   from running at the root.
-2. **Codex's cloud/local session-sharing limit becomes irrelevant.** Codex cannot
-   merge a cloud session with a local-profile session (the resume picker keeps
-   them separate; see [Codex](#codex)). But a fork carries no session: **Claude
-   Code holds the working context** and packs everything Codex needs into the
-   `task` string, then each `codex exec` runs **fresh and stateless**. There is
-   no session to share or merge, so the limitation simply does not apply.
-
-In short: forking *from* Claude Code lets Codex work as if the awkward
-side-by-side-clones layout did not exist, and lets the cloud Codex model act on
-context that originated in a (possibly local) Claude Code run.
-
-### Tools
-
-| Tool                                   | Sandbox             | Use for                                                                                                                                       |
-| -------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `fork_to_codex(task, repo, sandbox)` | `workspace-write` | Hand off a bounded coding task (implement / refactor / fix) that should run**inside one repo**. Codex edits the repo.                   |
-| `ask_codex(question, repo)`          | `read-only`       | Read-only question about a repo — explanation, review, "where/how is X here". No edits.                                                      |
-| `web_rag(query, repo)`               | `read-only`       | External-access path: live web search (`codex exec -c tools.web_search=true`) with cited sources. Use for anything post-cutoff or "latest". |
-
-`repo` is resolved relative to `CODEX_FORK_BASE` (default `~/rep`) or accepts an
-absolute path; **that repo is the sandbox**. Each call is **one-shot and
-stateless** — put everything Codex needs in `task`/`question`; it cannot see the
-Claude Code conversation. `sandbox` accepts `read-only`, `workspace-write`
-(default), or `danger-full-access`.
-
-### External access: web search (`web_rag`) and Notion (via `ask_codex`)
-
-Outward access is **folded into `mcp_codex.py`** rather than a separate bridge:
-`web_rag` is one more tool on the same one-shot `codex exec` fork, `read-only` on
-the filesystem (`repo` only supplies the fork's working root) — Codex searches
-*externally* but never edits the repo. It reuses the Codex login (`~/.codex`) and
-the same env knobs (`CODEX_BIN`, `CODEX_FORK_BASE`, `CODEX_MODEL`,
-`CODEX_FORK_TIMEOUT`); no extra auth or registration.
-
-**`web_rag`** uses Codex's native Responses `web_search` tool
-(`codex exec -c tools.web_search=true`), returning up-to-date answers with cited
-URLs.
-
-> **When to use `web_rag` (both cloud and local):** whenever an answer depends on
-> facts outside the agent's own knowledge — anything post-cutoff, any
-> "latest"/release/version/pricing claim, or any external fact the agent is not
-> certain of — query `web_rag` *before* answering, rather than answering from
-> memory or guessing.
-
-**Notion writes (via `ask_codex`).** There is **no longer a dedicated**
-The Notion MCP that Codex registers in its config (`[mcp_servers.notion]` →
-`https://mcp.notion.com/mcp`) is still available, so Notion writes are reachable
-by handing a Notion task to `ask_codex` (e.g. "create a page titled X under Y with
-…" / "append section Z to page `<url-or-id>` with …"). Put the full intent —
-target page (by ID or URL/title), title, and exact content — in the question;
-referencing a page by ID is more reliable than a URL or title. Low-frequency by
-design; the setup below is the one irreproducible part worth keeping.
-
-Register the Notion MCP with Codex once (adds `[mcp_servers.notion]` to
-`~/.codex/config.toml`), then complete its OAuth:
-
-```bash
-codex mcp add notion --url https://mcp.notion.com/mcp
-codex mcp login notion        # OAuth in the browser; grants page access
-```
-
-> **Required Notion config — auto-approve, OAuth connector only.** Because the fork
-> runs `codex exec` **non-interactively** (`stdin` is closed), any MCP tool call
-> that needs per-call approval is auto-**cancelled** (`user cancelled MCP tool call`). So the OAuth `notion` connector must be set to auto-approve in
-> `~/.codex/config.toml`:
->
-> ```toml
-> [mcp_servers.notion]
-> url = "https://mcp.notion.com/mcp"
-> default_tools_approval_mode = "approve"   # "approve" = auto-approve (values: auto | prompt | approve)
-> ```
->
-> Without it, an `ask_codex` Notion write returns `user cancelled MCP tool call`.
-> Do **not** rely on the Bearer-token `codex_apps` managed connector — it lacks
-> page access and returns `UNAUTHORIZED`; phrase the question to use the OAuth
-> `notion` connector explicitly. Verified end-to-end (append + delete on a target
-> page).
-
-### How it routes to the cloud model
-
-The fork reuses the Codex login on the host (`~/.codex`) and runs on whatever
-model Codex is configured to use (**GPT-5.5** by default; pin with `CODEX_MODEL`).
-It is the **cloud** Codex path: it does **not** read the `OPENAI_*` variables that
-`source_local` leaves unset, so even when Claude Code itself runs on the local
-open-weight model, a fork is reviewed/executed by the high-accuracy cloud model.
-This is the same "barter" the old stop-review-gate aimed for — closed, cheap local
-work; cloud-side accuracy on the result — but driven **explicitly, per task**, by
-Claude Code calling the tool, instead of an implicit per-turn hook.
-
-### Register in Claude Code (and optionally Codex)
-
-```bash
-claude mcp add -s user codex python3 $REP/ollama/mcp_codex.py
-# (optional) expose to a Codex session too, for Codex-to-Codex forks:
-codex mcp add codex -- python3 $REP/ollama/mcp_codex.py
-```
-
-Environment overrides (all optional):
-
-| Var                         | Default                           | Meaning                                            |
-| --------------------------- | --------------------------------- | -------------------------------------------------- |
-| `CODEX_BIN`               | `codex` on PATH → nvm fallback | Codex CLI binary (MCP host may lack the nvm PATH)  |
-| `CODEX_FORK_BASE`         | `~/rep`                         | Base that a relative `repo` resolves against     |
-| `CODEX_FORK_DEFAULT_REPO` | (empty)                           | Repo used when a call omits `repo`               |
-| `CODEX_MODEL`             | (empty → Codex default, GPT-5.5) | Pin the model for forks                            |
-| `CODEX_FORK_TIMEOUT`      | `1800`                          | Per-fork wall-clock cap (seconds)                  |
-| `CODEX_FORK_USAGE_LOG`    | `ollama/usage_codex.log`        | JSONL usage log (same schema as the other servers) |
-
-Usage is logged one JSONL record per call (`source: "codex"`, plus `repo` /
-`sandbox`), matching `usage_localllm.log` so `usage_report.py` can aggregate both.
-
-### Insurance: keep the Claude Code rg-cleanup `Stop` hook
-
-The fork model means Codex no longer runs at the multi-repo root, so the
-`stop-review-gate` `rg .` fallback that orphaned `rg` processes should not fire
-anymore. The `Stop` hook below is **kept as belt-and-suspenders only** — it costs
-nothing and still cleans up any stray `rg` from other sources.
-
-Add to `~/.claude/settings.json`; Claude Code runs it automatically when each
-session ends:
-
-```json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "MY_SID=$(ps -p $$ -o sid= 2>/dev/null | tr -d ' '); pgrep -u \"$(id -un)\" rg 2>/dev/null | while read p; do [ \"$(ps -p $p -o sid= 2>/dev/null | tr -d ' ')\" = \"$MY_SID\" ] && kill $p 2>/dev/null; done; true"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-The hook matches `rg` processes by **session ID (SID)**. SID is inherited from the
-parent at fork and does not change when a process becomes orphaned — so even after
-a spawner exits and `rg` is reparented to init, it retains the Claude Code
-session's SID.
-
-> **Best-effort:** not a perfect filter. `rg` processes started from the same
-> terminal session that launched Claude Code share the SID and would also be
-> killed. In practice that trade-off is acceptable — intentional long-running `rg`
-> searches in the same terminal as an active Claude Code session are rare.
-
----
-
-## Local model bridge (`mcp_localllm.py`) — deprecated, on demand
-
-`mcp_localllm.py` exposes the **active local model** as two stdio MCP tools. It
-is model-agnostic: it auto-detects whichever model Ollama currently has loaded
-(`/api/ps`, falling back to the first installed model from `/api/tags`) and
-adapts to that model's capabilities (`/api/show`). For **thinking-capable**
-models (e.g. `qwen3.6:35b-a3b`) it sets `think: false` on the native `/api/chat` call so
-the answer lands in `content` instead of being consumed by chain-of-thought
-under the output-token budget; non-thinking models are called plainly. Only the
-Python standard library is used (no OpenAI SDK).
-
-Overrides: `OLLAMA_HOST` (default `http://localhost:11434`), `LOCALLLM_MODEL_ID`
-(pin a specific model instead of auto-detecting), `LOCALLLM_MAX_TOKENS`
-(default `2048`), `LOCALLLM_TEMPERATURE` (default `0.2`), `LOCALLLM_TOP_P` /
-`LOCALLLM_TOP_K` (unset → Ollama defaults; forwarded only when set). Legacy
-`QWEN_MODEL_ID` / `QWEN_USAGE_LOG` are still honored for backward compatibility.
-
-> **Multi-turn / thinking accumulation:** the MCP tools are **single-shot** —
-> each `ask_local` / `ask_local_code` call sends only a fresh system+user pair
-> with no prior turns, and thinking-capable models run with `think: false`. So
-> no chain-of-thought is retained or replayed across calls; there is nothing to
-> cleanse on this path. (The separate **direct-connect** path,
-> `claude --model qwen3.6:35b-a3b-mtp-q4_K_M`, is a real multi-turn conversation; whether reasoning
-> blocks accumulate in history there is the client/Ollama template's
-> responsibility and is **not handled or verified** in this environment.)
-
-### Available tools
-
-| Tool                                 | Use for                                                                      |
-| ------------------------------------ | ---------------------------------------------------------------------------- |
-| `ask_local_code(language, prompt)` | Code: generation, refactoring, unit-test skeletons, stubs, code translation  |
-| `ask_local(prompt)`                | Prose: Q&A, explanations, summaries, translation, comment/docstring rewrites |
-
-### Token limits and sampling
-
-| Limit                | Value                                         | Source                                                        |
-| -------------------- | --------------------------------------------- | ------------------------------------------------------------- |
-| Output per call      | **≤ 2,048 tokens**                     | `mcp_localllm.py` `num_predict` (`LOCALLLM_MAX_TOKENS`) |
-| Sampling temperature | `0.2`                                       | `mcp_localllm.py` (`LOCALLLM_TEMPERATURE`)                |
-| Context window       | `OLLAMA_CONTEXT_LENGTH` (96000 via wrapper) | server-side (per loaded model)                                |
-
-`OLLAMA_CONTEXT_LENGTH` is the **combined** input+output budget per loaded
-model. The `2,048` figure is the per-call **output** limit set by the MCP server.
-Pack as much relevant context as the task needs up to the context window; split
-into multiple calls only when the input exceeds it, or when the expected answer
-exceeds the 2,048-token output limit.
-
-> **Model-specific sampling.** The MCP server forwards `LOCALLLM_TEMPERATURE`,
-> `LOCALLLM_TOP_P`, and `LOCALLLM_TOP_K` to `/api/chat` `options`; `top_p`/`top_k`
-> are sent only when set, so a model keeps Ollama's defaults unless you opt in.
-> Use this when a model is tuned away from the conservative `0.2` default — e.g.
-> the former gemma3 WSL model wanted `temperature≈1.0, top_p=0.95, top_k=64`. The
-> current WSL default `lfm2.5-1.2b-instruct` runs fine at the `0.2` default.
-
----
-
-## Token usage logging
-
-Each `mcp_localllm.py` call appends a JSONL record (timestamp, source, tool,
-model, token counts, latency) to `usage_localllm.log` (override with
-`LOCALLLM_USAGE_LOG`); `mcp_codex.py` writes the same schema to
-`usage_codex.log` (override with `CODEX_FORK_USAGE_LOG`). Codex rows
-have null token fields — `codex exec` does not report token counts —
-so token columns reflect local-LLM usage only, while call/latency columns cover
-both. `usage_report.py` reads both logs at once:
-
-```bash
-python3 ollama/usage_report.py                  # both logs, source / tool table
-python3 ollama/usage_report.py --by source      # group by source (localllm / codex)
-python3 ollama/usage_report.py --by tool        # group by tool
-python3 ollama/usage_report.py --by day         # group by day
-python3 ollama/usage_report.py --json           # machine-readable totals
-python3 ollama/usage_report.py usage_codex.log  # one explicit file
-```
