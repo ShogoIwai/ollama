@@ -117,9 +117,10 @@ Test the integration path:
   ```
 
 A model that emits tool calls as plain-text JSON in `content` (e.g. small Gemma)
-cannot drive direct connect — see the tool-calling caveat in
-[WSL / low-memory (CPU)](#wsl--low-memory-cpu). Note speed
-(`tok/s`), resident VRAM, and whether tool calls land.
+rather than a structured `tool_calls` block cannot drive direct connect — the
+client cannot detect the call and "hallucinates" edits that never reach disk;
+verify with `/api/show` capabilities (`tools`) + a tool-call smoke test. Note
+speed (`tok/s`), resident VRAM, and whether tool calls land.
 
 ### 6. Adopt or drop
 
@@ -133,7 +134,7 @@ nothing else was committed. If **yes**, continue to step 7.
 Record the adopted model so the next person does not re-derive it:
 
 - add a row to [Models and memory requirements](#models-and-memory-requirements)
-  (or the WSL table) with the **measured** VRAM / context / `tok/s`, not estimates;
+  with the **measured** VRAM / context / `tok/s`, not estimates;
 - add the launcher to the [Directory Contents](#directory-contents) table and the
   [Quick Start](#2-start-the-server) launcher list;
 - if you added a Codex profile in step 3, document the overlay file under
@@ -215,7 +216,6 @@ marker to fall back to the `qwen3.6:35b-a3b-mtp-q4_K_M` default.
 | `up_version.csh`                           | Reinstall Ollama to the latest release, stop/disable the systemd unit, and print the version (manual update helper)                                                                                                                                                                                                                                                                 |
 | `start_ollama_qwen36_35b.sh`               | Thin launcher for `qwen3.6:35b-a3b-mtp-q4_K_M` (default; Qwen3.6-35B-A3B MoE, ~3B active, thinking-capable; override `MODEL=qwen3.6:35b` for non-MTP)                                                                                                                                                                                                                           |
 | `start_ollama_qwen36_uncensored_vision.sh` | Thin launcher for `fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:Q4` (optional; uncensored derivative of the default that **keeps vision** — handles image/PDF input; ~125 tok/s, Codex profile `ollama-qwen36-uncensored-vision`)                                                                                                                        |
-| `start_ollama_lfm25_wsl.sh`                | Thin launcher for `LiquidAI/lfm2.5-1.2b-instruct:q4_k_m` on a WSL / GPU-less host (CPU; default WSL model); **tool-capable** (structured `tool_calls`), so it can drive direct connect (see [WSL / low-memory (CPU)](#wsl--low-memory-cpu))                                                                                                                                  |
 | `_ollama_serve_common.sh`                  | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in `~/.ollama_active_model`                                                                                                                                                                                                                                            |
 | `source_local` / `.csh`                  | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local                                                                                                                                                                                                                                                                                                |
 | `source_cloud` / `.csh`                  | CLOUD mode: unset those env vars and `unalias claude`/`codex`                                                                                                                                                                                                                                                                                                                   |
@@ -254,13 +254,7 @@ ollama run qwen3.6:35b-a3b-mtp-q4_K_M      # optional REPL smoke test
 ```bash
 ./start_ollama_qwen36_35b.sh         # qwen3.6:35b-a3b-mtp-q4_K_M (default; override MODEL=qwen3.6:35b for non-MTP)
 ./start_ollama_qwen36_uncensored_vision.sh  # fredrezones55/Qwen3.6-...-HauhauCS-Aggressive:Q4 (optional; uncensored + vision for image/PDF)
-./start_ollama_lfm25_wsl.sh          # LiquidAI/lfm2.5-1.2b-instruct on WSL / GPU-less CPU host (tool-capable)
 ```
-
-For a WSL / GPU-less, low-memory host, use `start_ollama_lfm25_wsl.sh`. It
-differs from the GPU launchers in one way — it caps the context window lower (32K
-vs 96K) so the KV cache cannot blow past RAM on CPU. See
-[WSL / low-memory (CPU)](#wsl--low-memory-cpu).
 
 Each launcher is a thin wrapper: it sets the `MODEL` tag and sources the shared
 core `_ollama_serve_common.sh`. Adding a new model is one more 2-line launcher —
@@ -438,75 +432,6 @@ default of **96000**, **lightly loaded** (KV cache mostly empty — see caveat b
 
 ---
 
-## WSL / low-memory (CPU)
-
-The model table above targets large GPU / workstation memory. A typical **WSL
-host has no usable GPU budget and ~8 GB RAM** (`/dev/dri` exists via WSLg but VRAM
-is negligible), so those builds will not load. For that environment, run a small
-model **on CPU** instead.
-
-**Default: `LiquidAI/lfm2.5-1.2b-instruct:q4_k_m`** (LiquidAI LFM2.5, hybrid
-1.17B). Chosen over the former gemma3:4b default because it is **tool-capable**:
-it **emits a structured `tool_calls` block** (not plain-text JSON in `content`),
-so unlike gemma3 it can drive **direct connect** on WSL.
-Being a *hybrid* model (only 6 attention layers of 16) its KV cache stays small,
-so it holds its full **32K** native window on this 8 GB host. **Measured on the
-8 GB / 12-thread WSL host** (`start_ollama_lfm25_wsl.sh`, q4_k_m): `/api/show`
-capabilities `['tools','thinking','completion']`; **~0.9 GB resident, 100% CPU,
-~40 tok/s**; a `get_weather` tool-call test returned a proper structured
-`tool_calls` (empty `content`), and a plain `think:false` chat returned clean
-`content` with no thinking leak.
-
-> Pick the **`-instruct`** build, **not** `lfm2.5-thinking`, which Ollama
-> publishes text-only / without tool support. Other small CPU-fit candidates
-> (gemma3:1b/4b, gemma2:2b, codegemma:2b) report no
-> `tools` capability, so they cannot drive direct connect — hence the switch.
-
-| Model / tag                                        | Params | Resident (Q4)     | CPU tok/s     | tool_calls | Use for                                                |
-| -------------------------------------------------- | ------ | ----------------- | ------------- | ---------- | ------------------------------------------------------ |
-| **`LiquidAI/lfm2.5-1.2b-instruct:q4_k_m`** | 1.17B  | **~0.9 GB** | **~40** | structured | **WSL direct-connect tool use**, chat |
-
-> **Direct connect is enabled but limited by model size.** Both clients launch
-> and Claude Code accepts a prompt, but a 1.2B model under Claude Code's ~23K-token
-> system prompt is weak in practice; treat it as lightly usable. Claude Code direct connect
-> needs `OLLAMA_CONTEXT_LENGTH` ≥ ~32K just to fit the system prompt (the launcher
-> defaults to 32768 for this reason); set `CLAUDE_CODE_MAX_CONTEXT_TOKENS=32768`
-> before sourcing so the gauge matches the real window.
-
-### Start
-
-```bash
-./start_ollama_lfm25_wsl.sh            # LiquidAI/lfm2.5-1.2b-instruct:q4_k_m, ctx 32768
-#   OLLAMA_CONTEXT_LENGTH=8192 ./start_ollama_lfm25_wsl.sh    # tighter RAM
-#   MODEL=LiquidAI/lfm2.5-1.2b-instruct:q8_0 ./start_ollama_lfm25_wsl.sh   # ~1.2GB
-```
-
-Unlike the GPU launchers (which default `OLLAMA_CONTEXT_LENGTH=96000`), the WSL
-launcher defaults it to **32768** — the model's native ceiling, needed so Claude
-Code's ~23K-token system prompt fits on direct connect. LFM2.5's hybrid design
-keeps the KV cache small enough to hold 32K on this 8 GB host; drop to 8192 if
-RAM is tight (small tasks then). Both `MODEL` and
-`OLLAMA_CONTEXT_LENGTH` can be overridden before running.
-
-### Integration: direct connect
-
-On WSL the integration is **direct connect** via the cloud/local env switch. With
-the default `lfm2.5-1.2b-instruct`, direct connect works (it reports `tools` and
-emits a structured `tool_calls` block), so Claude Code / Codex can in principle
-drive edits — but a 1.2B model is weak under their large system prompts, so treat
-direct connect as "runs, lightly usable."
-
-> **Tool-calling caveat (for other WSL models).** A model that does
-> **not** report `tools` and emits the call as **plain-text JSON in `content`**
-> (e.g. the former gemma3:4b default) **cannot drive direct connect**: the client
-> cannot detect the call and "hallucinates" edits that never reach disk. Driving
-> such a model would need an Anthropic-emulating gateway (Bifrost / LiteLLM) plus
-> attribution-header suppression. This is the exact failure lfm2.5's structured
-> `tool_calls` avoids — verify it with the `/api/show` capabilities + a tool-call
-> smoke test before adopting any new WSL model for direct connect.
-
----
-
 ## cloud / local static switching
 
 Switching is done by sourcing one of two env files. There is no dynamic
@@ -608,11 +533,8 @@ recursively.)
 > (the `claude` alias). Make sure the model you point the
 > alias at is actually the one the running launcher serves.
 
-> **Direct connect:** the WSL default `LiquidAI/lfm2.5-1.2b-instruct` also reports
-> `tools` and emits structured `tool_calls`, so it can drive direct connect too —
-> just weakly, being 1.2B (see [WSL / low-memory (CPU)](#wsl--low-memory-cpu)). On
-> the 24 GB host, `qwen3.6:35b-a3b-mtp-q4_K_M` reports the `tools` capability and is a candidate
-> **direct-connect agentic backend for both Claude Code
+> **Direct connect:** `qwen3.6:35b-a3b-mtp-q4_K_M` reports the `tools` capability
+> and is a candidate **direct-connect agentic backend for both Claude Code
 > and Codex** on the 24 GB host: `./start_ollama_qwen36_35b.sh` then
 > `source ollama/source_local` (claude → `--model qwen3.6:35b-a3b-mtp-q4_K_M`, codex →
 > `--profile ollama-qwen36-35b`).
