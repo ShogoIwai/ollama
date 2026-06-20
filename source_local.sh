@@ -1,22 +1,22 @@
-# Switch the current shell to LOCAL (Ollama) mode.  bash/sh:  source ollama/source_local
+# Switch the current shell to LOCAL (Ollama) mode.  bash/sh:  source ollama/source_local.sh
 #
 # Points Claude Code (Anthropic-compatible /v1/messages) at the local Ollama
-# endpoint on :11434. Return to cloud with `source ollama/source_cloud`.
+# endpoint on :11434. Return to cloud with `source ollama/source_cloud.sh`.
 #
 # NOTE: This file only touches ANTHROPIC_* (Claude Code). It deliberately does
 # NOT export any OPENAI_* var: Codex's cloud OpenAI client reads those too, so
 # exporting them here would silently redirect Codex to the local server.
 
 # --- Auto-reset stale LOCAL state so re-sourcing tracks a freshly-started model ---
-# Switching models used to need `source_cloud` then `source_local`: the previous
-# source_local left LOCALLLM_MODEL set, and that leftover beats the ~/.ollama_active_model
+# Switching models used to need `source_cloud.sh` then `source_local.sh`: the previous
+# source_local.sh left LOCALLLM_MODEL set, and that leftover beats the ~/.ollama_active_model
 # marker, so re-sourcing kept the old model. We mark LOCAL mode with the sentinel
 # _LOCALLLM_SOURCED; if it is already set we are re-sourcing over a prior LOCAL
-# session, so call source_cloud first to clear LOCALLLM_MODEL/aliases and let the
+# session, so call source_cloud.sh first to clear LOCALLLM_MODEL/aliases and let the
 # marker win. (An explicit `export LOCALLLM_MODEL=...` from a cloud shell carries no
 # sentinel, so it is NOT reset and still wins — the documented override is preserved.)
 if [ -n "${_LOCALLLM_SOURCED:-}" ]; then
-    source "$(dirname "${BASH_SOURCE[0]}")/source_cloud" >/dev/null
+    source "$(dirname "${BASH_SOURCE[0]}")/source_cloud.sh" >/dev/null
 fi
 
 export OLLAMA_HOST="http://localhost:11434"
@@ -34,7 +34,7 @@ export ANTHROPIC_API_KEY=""
 # only override env (CLAUDE_CODE_MAX_CONTEXT_TOKENS) is honored ONLY when
 # DISABLE_COMPACT is set (see bundle fn v87). So we trade auto-compact for an
 # honest /context gauge + "approaching limit" warning at the real 64K, and drive
-# /compact or /clear manually. source_cloud unsets both. Override
+# /compact or /clear manually. source_cloud.sh unsets both. Override
 # CLAUDE_CODE_MAX_CONTEXT_TOKENS before sourcing if you raise the Ollama window.
 export DISABLE_COMPACT=1
 export CLAUDE_CODE_MAX_CONTEXT_TOKENS="${CLAUDE_CODE_MAX_CONTEXT_TOKENS:-96000}"
@@ -45,7 +45,7 @@ export CLAUDE_CODE_MAX_CONTEXT_TOKENS="${CLAUDE_CODE_MAX_CONTEXT_TOKENS:-96000}"
 # LOCALLLM_CODEX_PROFILE picks the Codex profile the `codex` alias selects
 #                        (overlay file ~/.codex/<profile>.config.toml that sets
 #                        the model). Default: ollama-local.
-# Example:  export LOCALLLM_MODEL=qwen3.6:35b  before  source ollama/source_local
+# Example:  export LOCALLLM_MODEL=qwen3.6:35b  before  source ollama/source_local.sh
 #
 # Auto-detection: the start scripts (_ollama_serve_common.sh) record the launched
 # model tag in ~/.ollama_active_model. If LOCALLLM_MODEL is not already set, we
@@ -71,7 +71,7 @@ fi
 export LOCALLLM_MODEL LOCALLLM_CODEX_PROFILE
 export _LOCALLLM_SOURCED=1   # sentinel: in LOCAL mode (see auto-reset block above)
 
-# --- Local-mode aliases (cleared by source_cloud) ---
+# --- Local-mode aliases (cleared by source_cloud.sh) ---
 # claude: env already points at Ollama; alias just pins the model name.
 # codex : no shared env (OPENAI_* intentionally unset), so the profile flag is
 #         what actually selects local. Disable the OAuth Notion MCP only for this

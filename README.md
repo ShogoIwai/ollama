@@ -80,20 +80,20 @@ chmod +x start_ollama_<name>.sh
 
 If you want a `claude --model` / `codex --profile` shortcut for it, also add:
 
-- a `case`/`switch` arm in **both** `source_local` and `source_local.csh`
+- a `case`/`switch` arm in **both** `source_local.sh` and `source_local.csh`
   mapping the tag → a Codex profile name (see
   [cloud / local static switching](#cloud--local-static-switching)), and
 - the matching overlay file `~/.codex/<profile>.config.toml` with
   `model = "<tag>"` and `model_provider = "ollama-local"` (see [Codex](#codex)).
 
 This is optional for a first smoke test — auto-detection from the marker already
-makes `source_local` track the launched tag.
+makes `source_local.sh` track the launched tag.
 
 ### 4. Restart the daemon on the new model
 
 Only one daemon binds `:11434`, so stop the running launcher and start the new
 one. The launcher records the tag in `~/.ollama_active_model`, which
-`source_local` then auto-detects.
+`source_local.sh` then auto-detects.
 
 ```bash
 # stop the currently running launcher (Ctrl-C in its foreground, or kill the serve)
@@ -111,7 +111,7 @@ Test the integration path:
 - **Direct-connect agentic backend** (only if the model reports `tools`
   capability and emits structured tool calls):
   ```bash
-  source ollama/source_local            # tcsh: source ollama/source_local.csh
+  source ollama/source_local.sh            # tcsh: source ollama/source_local.csh
   claude                                 # drive a small edit; confirm it reaches disk
   codex                                  # confirm a tool call executes
   ```
@@ -190,7 +190,7 @@ new LLM* are the only ones that leave anything in the tree), delete those so the
 README and switch logic stay truthful:
 
 - delete the launcher `start_ollama_<name>.sh`;
-- remove its `case`/`switch` arm from **both** `source_local` and
+- remove its `case`/`switch` arm from **both** `source_local.sh` and
   `source_local.csh`, and delete the overlay `~/.codex/<profile>.config.toml`;
 - drop its row from [Models and memory requirements](#models-and-memory-requirements),
   [Directory Contents](#directory-contents), and the
@@ -202,7 +202,7 @@ freed — so remove the launcher unless you intend to re-pull.
 
 ### 4. (Optional) clear the active-model marker
 
-If you removed the tag recorded in `~/.ollama_active_model`, `source_local` would
+If you removed the tag recorded in `~/.ollama_active_model`, `source_local.sh` would
 still resolve the alias to a now-absent model until the next launcher run
 rewrites the marker. Start another launcher (which overwrites it) or delete the
 marker to fall back to the `qwen3.6:35b-a3b-mtp-q4_K_M` default.
@@ -217,8 +217,8 @@ marker to fall back to the `qwen3.6:35b-a3b-mtp-q4_K_M` default.
 | `start_ollama_qwen36_35b.sh`               | Thin launcher for `qwen3.6:35b-a3b-mtp-q4_K_M` (default; Qwen3.6-35B-A3B MoE, ~3B active, thinking-capable; override `MODEL=qwen3.6:35b` for non-MTP)                                                                                                                                                                                                                           |
 | `start_ollama_qwen36_uncensored_vision.sh` | Thin launcher for `fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:Q4` (optional; uncensored derivative of the default that **keeps vision** — handles image/PDF input; ~125 tok/s, Codex profile `ollama-qwen36-uncensored-vision`)                                                                                                                        |
 | `_ollama_serve_common.sh`                  | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in `~/.ollama_active_model`                                                                                                                                                                                                                                            |
-| `source_local` / `.csh`                  | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local                                                                                                                                                                                                                                                                                                |
-| `source_cloud` / `.csh`                  | CLOUD mode: unset those env vars and `unalias claude`/`codex`                                                                                                                                                                                                                                                                                                                   |
+| `source_local.sh` / `.csh`                  | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local                                                                                                                                                                                                                                                                                                |
+| `source_cloud.sh` / `.csh`                  | CLOUD mode: unset those env vars and `unalias claude`/`codex`                                                                                                                                                                                                                                                                                                                   |
 
 ---
 
@@ -268,14 +268,14 @@ lives once in the common file. The wrapper:
   the selected `MODEL` if missing, then keeps the daemon in the foreground.
 
 > Only one daemon binds `:11434`. To switch which model serves, stop the running
-> launcher and start the other; `source_local` then auto-detects the newly
+> launcher and start the other; `source_local.sh` then auto-detects the newly
 > loaded model. Run both side by side only if you give each its own
 > `OLLAMA_HOST` port.
 
 > **Context length:** Ollama's auto-picked default is too small for agent use —
 > as low as 4K when VRAM < 24GB, and even a 24GB RTX 3090 only defaults to
 > ~32768. So the wrapper sets `OLLAMA_CONTEXT_LENGTH=96000` (kept in sync with
-> `CLAUDE_CODE_MAX_CONTEXT_TOKENS` in `source_local`). **This applies only
+> `CLAUDE_CODE_MAX_CONTEXT_TOKENS` in `source_local.sh`). **This applies only
 > to the `serve` launched by
 > this script** — a daemon started elsewhere (systemd) keeps its own setting.
 > Check the loaded context and CPU/GPU split with `ollama ps`.
@@ -435,8 +435,8 @@ default of **96000**, **lightly loaded** (KV cache mostly empty — see caveat b
 ## cloud / local static switching
 
 Switching is done by sourcing one of two env files. There is no dynamic
-routing. A freshly opened shell is already in cloud mode; `source_local`
-exports the Ollama overrides, and `source_cloud` unsets them to return to cloud
+routing. A freshly opened shell is already in cloud mode; `source_local.sh`
+exports the Ollama overrides, and `source_cloud.sh` unsets them to return to cloud
 within the same shell.
 
 The env files toggle **Claude Code only** (`ANTHROPIC_*`). They deliberately
@@ -445,8 +445,8 @@ those too, so exporting them would silently redirect Codex to the local server.
 
 | File                        | Mode          | Effect                                                                                                                                                                                                                                                                                                               |
 | --------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `source_local` / `.csh` | LOCAL(Ollama) | export `ANTHROPIC_BASE_URL=:11434`, `ANTHROPIC_AUTH_TOKEN=ollama`, `ANTHROPIC_API_KEY=""`, `OLLAMA_HOST`, `DISABLE_COMPACT=1`, `CLAUDE_CODE_MAX_CONTEXT_TOKENS=96000` (see [Context window](#context-window-in-local-mode)); alias `claude`/`codex` to local (see [Aliases](#aliases-set-by-source_local)) |
-| `source_cloud` / `.csh` | CLOUD         | unset the above (tcsh `unsetenv`) and `unalias claude` / `codex`; re-set `ANTHROPIC_API_KEY` if you authenticate by key                                                                                                                                                                                      |
+| `source_local.sh` / `.csh` | LOCAL(Ollama) | export `ANTHROPIC_BASE_URL=:11434`, `ANTHROPIC_AUTH_TOKEN=ollama`, `ANTHROPIC_API_KEY=""`, `OLLAMA_HOST`, `DISABLE_COMPACT=1`, `CLAUDE_CODE_MAX_CONTEXT_TOKENS=96000` (see [Context window](#context-window-in-local-mode)); alias `claude`/`codex` to local (see [Aliases](#aliases-set-by-source_localsh)) |
+| `source_cloud.sh` / `.csh` | CLOUD         | unset the above (tcsh `unsetenv`) and `unalias claude` / `codex`; re-set `ANTHROPIC_API_KEY` if you authenticate by key                                                                                                                                                                                      |
 
 ### Context window in LOCAL mode
 
@@ -460,7 +460,7 @@ the oldest tokens — the model quietly loses early context with no error.
 
 There is **no clean way to keep auto-compact and fire it at the real window**: the
 only override env, `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, is honored **only when
-`DISABLE_COMPACT` is set** (bundle fn `v87`). So `source_local` makes the
+`DISABLE_COMPACT` is set** (bundle fn `v87`). So `source_local.sh` makes the
 deliberate trade-off:
 
 - `DISABLE_COMPACT=1` — turns auto-compact off, and
@@ -471,12 +471,12 @@ deliberate trade-off:
 Net effect: **you compact manually** (`/compact` or `/clear`) when the honest
 gauge says you're near the limit, instead of being silently truncated. If you
 raise the Ollama window, set `CLAUDE_CODE_MAX_CONTEXT_TOKENS` to the new value
-**before** sourcing. `source_cloud` unsets both, so cloud mode is unaffected.
+**before** sourcing. `source_cloud.sh` unsets both, so cloud mode is unaffected.
 
-### Aliases set by `source_local`
+### Aliases set by `source_local.sh`
 
-`source_local` defines two shell aliases so plain `claude` / `codex` run in
-local mode without typing flags; `source_cloud` removes them again. The model
+`source_local.sh` defines two shell aliases so plain `claude` / `codex` run in
+local mode without typing flags; `source_cloud.sh` removes them again. The model
 each alias selects is **no longer hard-coded** — it is **auto-detected from the
 running launcher** and can still be overridden by two env vars you set **before**
 sourcing:
@@ -489,7 +489,7 @@ sourcing:
 **Auto-detection (marker file).** Each start script records the launched model
 tag in `~/.ollama_active_model` (written by `_ollama_serve_common.sh` as soon as
 `MODEL` is known, so it applies on every path including the already-running
-early-exit). When `source_local` runs and `LOCALLLM_MODEL` is unset, it reads
+early-exit). When `source_local.sh` runs and `LOCALLLM_MODEL` is unset, it reads
 that marker — so sourcing automatically tracks whichever model you started, with
 no manual edits. If the marker is missing it falls back to
 `qwen3.6:35b-a3b-mtp-q4_K_M`. An
@@ -508,12 +508,12 @@ into memory on demand, so it is empty right after `ollama serve` starts.)
 ```bash
 # auto: start a model, then just source — both clients follow it
 ./start_ollama_qwen36_35b.sh               # writes marker = qwen3.6:35b-a3b-mtp-q4_K_M
-source ollama/source_local                 # tcsh: source ollama/source_local.csh
+source ollama/source_local.sh                 # tcsh: source ollama/source_local.csh
 #   → claude --model qwen3.6:35b-a3b-mtp-q4_K_M, codex --profile ollama-qwen36-35b
 
 # manual override still works (wins over the marker)
 export LOCALLLM_MODEL=qwen3.6:35b          # tcsh: setenv LOCALLLM_MODEL qwen3.6:35b
-source ollama/source_local                 # claude alias → claude --model qwen3.6:35b
+source ollama/source_local.sh                 # claude alias → claude --model qwen3.6:35b
 ```
 
 The two env files resolve the aliases at source time:
@@ -523,8 +523,8 @@ The two env files resolve the aliases at source time:
 | `claude` → `claude --model $LOCALLLM_MODEL`                                              | env already targets Ollama; the alias just pins the model name                                                      |
 | `codex` → `codex --profile $LOCALLLM_CODEX_PROFILE -c mcp_servers.notion.enabled=false` | Codex shares no env (OPENAI_* stays unset), so the profile flag selects local; Notion MCP is disabled only locally |
 
-`source_local` also exports `LOCALLLM_MODEL` / `LOCALLLM_CODEX_PROFILE` so the
-choice is visible to subprocesses; `source_cloud` unsets both along with the
+`source_local.sh` also exports `LOCALLLM_MODEL` / `LOCALLLM_CODEX_PROFILE` so the
+choice is visible to subprocesses; `source_cloud.sh` unsets both along with the
 aliases, so `claude` / `codex` revert to their cloud defaults. (Alias
 self-reference is safe — bash/csh do not re-expand the leading word
 recursively.)
@@ -536,28 +536,28 @@ recursively.)
 > **Direct connect:** `qwen3.6:35b-a3b-mtp-q4_K_M` reports the `tools` capability
 > and is a candidate **direct-connect agentic backend for both Claude Code
 > and Codex** on the 24 GB host: `./start_ollama_qwen36_35b.sh` then
-> `source ollama/source_local` (claude → `--model qwen3.6:35b-a3b-mtp-q4_K_M`, codex →
+> `source ollama/source_local.sh` (claude → `--model qwen3.6:35b-a3b-mtp-q4_K_M`, codex →
 > `--profile ollama-qwen36-35b`).
 
 ### Claude Code
 
 ```bash
 # local
-source ollama/source_local         # tcsh: source ollama/source_local.csh
+source ollama/source_local.sh         # tcsh: source ollama/source_local.csh
 claude                             # alias → claude --model $LOCALLLM_MODEL (default qwen3.6:35b-a3b-mtp-q4_K_M)
 # (optional) alias to bypass model-name validation:
 #   ollama cp qwen3.6:35b-a3b-mtp-q4_K_M claude-3-5-sonnet
 
 # cloud
-source ollama/source_cloud         # tcsh: source ollama/source_cloud.csh
+source ollama/source_cloud.sh         # tcsh: source ollama/source_cloud.csh
 claude                             # alias cleared → cloud default
 ```
 
 ### Codex
 
-`source_local` aliases `codex` →
+`source_local.sh` aliases `codex` →
 `codex --profile $LOCALLLM_CODEX_PROFILE -c mcp_servers.notion.enabled=false`;
-`source_cloud` clears it so `codex` is cloud again. The `-c` override disables
+`source_cloud.sh` clears it so `codex` is cloud again. The `-c` override disables
 the OAuth Notion MCP only for local LLM runs, avoiding repeated Notion
 re-authentication while leaving the normal cloud `codex` command on the global
 Notion MCP setting. You can still invoke either explicitly
