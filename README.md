@@ -216,6 +216,7 @@ marker to fall back to the `qwen3.6:35b-a3b-mtp-q4_K_M` default.
 | `up_version.csh`                           | Reinstall Ollama to the latest release, stop/disable the systemd unit, and print the version (manual update helper)                                                                                                                                                                                                                                                                 |
 | `start_ollama_qwen36_35b.sh`               | Thin launcher for `qwen3.6:35b-a3b-mtp-q4_K_M` (default; Qwen3.6-35B-A3B MoE, ~3B active, thinking-capable; override `MODEL=qwen3.6:35b` for non-MTP)                                                                                                                                                                                                                           |
 | `start_ollama_qwen36_uncensored_vision.sh` | Thin launcher for `fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:Q4` (optional; uncensored derivative of the default that **keeps vision** — handles image/PDF input; ~125 tok/s, Codex profile `ollama-qwen36-uncensored-vision`)                                                                                                                        |
+| `start_ollama_ornith_35b.sh`               | Thin launcher for `ornith:35b` (optional; `qwen35moe`-architecture build, Qwen3.6-35B-A3B family, MoE ~3B active, Q4_K_M; **text-only — no vision**; ~111 tok/s, Codex profile `ollama-ornith-35b`)                                                                                                                                                                       |
 | `_ollama_serve_common.sh`                  | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in `~/.ollama_active_model`                                                                                                                                                                                                                                            |
 | `source_local.sh` / `.csh`                  | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local                                                                                                                                                                                                                                                                                                |
 | `source_cloud.sh` / `.csh`                  | CLOUD mode: unset those env vars and `unalias claude`/`codex`                                                                                                                                                                                                                                                                                                                   |
@@ -254,6 +255,7 @@ ollama run qwen3.6:35b-a3b-mtp-q4_K_M      # optional REPL smoke test
 ```bash
 ./start_ollama_qwen36_35b.sh         # qwen3.6:35b-a3b-mtp-q4_K_M (default; override MODEL=qwen3.6:35b for non-MTP)
 ./start_ollama_qwen36_uncensored_vision.sh  # fredrezones55/Qwen3.6-...-HauhauCS-Aggressive:Q4 (optional; uncensored + vision for image/PDF)
+./start_ollama_ornith_35b.sh                # ornith:35b (optional; qwen35moe-arch MoE, Q4_K_M, text-only)
 ```
 
 Each launcher is a thin wrapper: it sets the `MODEL` tag and sources the shared
@@ -382,6 +384,23 @@ default), so watch KV-cache headroom under heavy context.
 Launch with `./start_ollama_qwen36_uncensored_vision.sh` (Codex profile
 `ollama-qwen36-uncensored-vision`, overlay `~/.codex/ollama-qwen36-uncensored-vision.config.toml`).
 
+**ornith:35b (`ornith:35b`, measured — adopted).** Optional launcher. A
+`qwen35moe`-architecture build (registry config reports `model_family qwen35moe`,
+`model_type 34.7B`, `file_type Q4_K_M`, native 262144/256K context) — i.e. the
+same Qwen3.6-35B-A3B sparse-MoE family (~3B active) as the default, at gguf Q4_K_M
+(~21 GB weights). Its manifest carries **no projector layer**, so it is
+**text-only** (no vision). **Measured on this host (RTX 3090 24GB)** with the shared
+wrapper settings (`OLLAMA_KV_CACHE_TYPE=q8_0` + flash attention): `/api/show`
+capabilities `['completion','tools','thinking']` (**no `vision`**), **100% GPU,
+22 GB resident, 96000 context, ~111 tok/s** generation (prompt ~813 tok/s), and a
+`/api/chat` tool-call smoke test returned a **structured `tool_calls` block with
+empty `content`** (`think:false`, no thinking leak); **Claude Code was confirmed
+running on it via direct connect**. As a `qwen35moe` derivative its provenance is
+weaker than the Apache-2.0 default; adopt for text-only agentic use where a
+non-default sampling/finetune behaviour is wanted. Launch with
+`./start_ollama_ornith_35b.sh` (Codex profile `ollama-ornith-35b`, overlay
+`~/.codex/ollama-ornith-35b.config.toml`).
+
 **Sizing a new model (rough estimate).** Before pulling, estimate weight memory as:
 
 ```
@@ -414,6 +433,7 @@ default of **96000**, **lightly loaded** (KV cache mostly empty — see caveat b
 | ------------------------------------------------------------------- | ------- | --------- | ----------------------------------- | ---------- |
 | `qwen3.6:35b-a3b-mtp-q4_K_M`                                      | 96000   | 100% GPU  | 22 GB (light load; 23.9/24 GB used) | ~87 tok/s  |
 | `fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:Q4` | 96000   | 100% GPU  | 22 GB (vision-capable)              | ~125 tok/s |
+| `ornith:35b`                                                     | 96000   | 100% GPU  | 22 GB (text-only)                   | ~111 tok/s |
 
 > The reported SIZE reflects a near-empty KV cache because Ollama allocates KV
 > lazily — at warm-up little of the 96K is in use. With only ~650 MiB VRAM headroom
@@ -631,9 +651,20 @@ model_context_window = 96000
 model_auto_compact_token_limit = 86000
 ```
 
+Likewise for the text-only `ornith:35b` build (again only the `model` line differs):
+
+```toml
+# ~/.codex/ollama-ornith-35b.config.toml  (qwen35moe-arch, text-only)
+model = "ornith:35b"
+model_provider = "ollama-local"
+model_context_window = 96000
+model_auto_compact_token_limit = 86000
+```
+
 ```bash
 codex --profile ollama-local             # local qwen3.6:35b-a3b (loads ollama-local.config.toml)
 codex --profile ollama-qwen36-35b        # local qwen3.6:35b-a3b (loads ollama-qwen36-35b.config.toml)
 codex --profile ollama-qwen36-uncensored-vision # local Uncensored + vision (loads ollama-qwen36-uncensored-vision.config.toml)
+codex --profile ollama-ornith-35b        # local ornith:35b (loads ollama-ornith-35b.config.toml)
 codex                                    # cloud (default profile)
 ```
