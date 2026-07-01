@@ -216,7 +216,7 @@ marker to fall back to the `qwen3.6:35b-a3b-mtp-q4_K_M` default.
 | `up_version.csh`                           | Reinstall Ollama to the latest release, stop/disable the systemd unit, and print the version (manual update helper)                                                                                                                                                                                                                                                                 |
 | `start_ollama_qwen36_35b.sh`               | Thin launcher for `qwen3.6:35b-a3b-mtp-q4_K_M` (default; Qwen3.6-35B-A3B MoE, ~3B active, thinking-capable; override `MODEL=qwen3.6:35b` for non-MTP)                                                                                                                                                                                                                           |
 | `start_ollama_qwen36_uncensored_vision.sh` | Thin launcher for `fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:Q4` (optional; uncensored derivative of the default that **keeps vision** — handles image/PDF input; ~125 tok/s, Codex profile `ollama-qwen36-uncensored-vision`)                                                                                                                        |
-| `start_ollama_ornith_35b.sh`               | Thin launcher for `ornith:35b` (optional; `qwen35moe`-architecture build, Qwen3.6-35B-A3B family, MoE ~3B active, Q4_K_M; **text-only — no vision**; ~111 tok/s, Codex profile `ollama-ornith-35b`)                                                                                                                                                                       |
+| `start_ollama_ornith_35b.sh`               | Thin launcher for `ornith:35b` (optional; **DeepReinforce Ornith-1.0-35B**, MIT-licensed agentic-coding RL model post-trained on a Qwen-3.5-series MoE base — `qwen35moe` arch, ~3B active, Q4_K_M; **text-only — no vision**; ~111 tok/s, Codex profile `ollama-ornith-35b`)                                                                                                                                                                       |
 | `_ollama_serve_common.sh`                  | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in `~/.ollama_active_model`                                                                                                                                                                                                                                            |
 | `source_local.sh` / `.csh`                  | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local                                                                                                                                                                                                                                                                                                |
 | `source_cloud.sh` / `.csh`                  | CLOUD mode: unset those env vars and `unalias claude`/`codex`                                                                                                                                                                                                                                                                                                                   |
@@ -384,20 +384,27 @@ default), so watch KV-cache headroom under heavy context.
 Launch with `./start_ollama_qwen36_uncensored_vision.sh` (Codex profile
 `ollama-qwen36-uncensored-vision`, overlay `~/.codex/ollama-qwen36-uncensored-vision.config.toml`).
 
-**ornith:35b (`ornith:35b`, measured — adopted).** Optional launcher. A
-`qwen35moe`-architecture build (registry config reports `model_family qwen35moe`,
-`model_type 34.7B`, `file_type Q4_K_M`, native 262144/256K context) — i.e. the
-same Qwen3.6-35B-A3B sparse-MoE family (~3B active) as the default, at gguf Q4_K_M
-(~21 GB weights). Its manifest carries **no projector layer**, so it is
-**text-only** (no vision). **Measured on this host (RTX 3090 24GB)** with the shared
-wrapper settings (`OLLAMA_KV_CACHE_TYPE=q8_0` + flash attention): `/api/show`
-capabilities `['completion','tools','thinking']` (**no `vision`**), **100% GPU,
-22 GB resident, 96000 context, ~111 tok/s** generation (prompt ~813 tok/s), and a
-`/api/chat` tool-call smoke test returned a **structured `tool_calls` block with
-empty `content`** (`think:false`, no thinking leak); **Claude Code was confirmed
-running on it via direct connect**. As a `qwen35moe` derivative its provenance is
-weaker than the Apache-2.0 default; adopt for text-only agentic use where a
-non-default sampling/finetune behaviour is wanted. Launch with
+**ornith:35b (`ornith:35b`, measured — adopted).** Optional launcher. This is
+**DeepReinforce AI's Ornith-1.0-35B** (MoE), an **MIT-licensed** open-weight model
+purpose-built for agentic coding (coding + tool-use), post-trained with RL that
+co-optimizes the solution and its scaffold. It is **not** a community derivative of
+the Qwen3.6 default: the gguf reports `architecture qwen35moe` only because Ornith
+is post-trained from a **Qwen-3.5-series sparse-MoE base** (~3B active), and the
+`qwen35moe` family string is shared with the default merely as the common base
+architecture — the two are distinguished by license (Ornith **MIT** vs default
+**Apache-2.0**) and by Ornith's baked-in system prompt (*"You are Ornith, an
+open-source agentic coding assistant"*). Registry config: `model_type 34.7B`,
+`file_type Q4_K_M`, native 262144/256K context (~21 GB weights). Its manifest
+carries **no projector layer**, so it is **text-only** (no vision). **Measured on
+this host (RTX 3090 24GB)** with the shared wrapper settings
+(`OLLAMA_KV_CACHE_TYPE=q8_0` + flash attention): `/api/show` capabilities
+`['completion','tools','thinking']` (**no `vision`**), **100% GPU, 22 GB resident,
+96000 context, ~111 tok/s** generation (prompt ~813 tok/s), and a `/api/chat`
+tool-call smoke test returned a **structured `tool_calls` block with empty
+`content`** (`think:false`, no thinking leak); **Claude Code was confirmed running
+on it via direct connect**. DeepReinforce's own benchmarks report the **Claude Code
+harness as the best-scoring** driver for the Ornith family, so Claude Code
+direct-connect is the recommended pairing for text-only agentic use. Launch with
 `./start_ollama_ornith_35b.sh` (Codex profile `ollama-ornith-35b`, overlay
 `~/.codex/ollama-ornith-35b.config.toml`).
 
