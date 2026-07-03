@@ -211,15 +211,16 @@ marker to fall back to the `qwen3.6:35b-a3b-mtp-q4_K_M` default.
 
 ## Directory Contents
 
-| File                                         | Role                                                                                                                                                                                                                                                                                                                                                                                |
-| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `up_version.csh`                           | Reinstall Ollama to the latest release, stop/disable the systemd unit, and print the version (manual update helper)                                                                                                                                                                                                                                                                 |
-| `start_ollama_qwen36_35b.sh`               | Thin launcher for `qwen3.6:35b-a3b-mtp-q4_K_M` (default; Qwen3.6-35B-A3B MoE, ~3B active, thinking-capable; override `MODEL=qwen3.6:35b` for non-MTP)                                                                                                                                                                                                                           |
-| `start_ollama_qwen36_uncensored_vision.sh` | Thin launcher for `fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:Q4` (optional; uncensored derivative of the default that **keeps vision** — handles image/PDF input; ~109 tok/s @128K, Codex profile `ollama-qwen36-uncensored-vision`)                                                                                                                        |
-| `start_ollama_ornith_35b.sh`               | Thin launcher for `ornith:35b` (optional; **DeepReinforce Ornith-1.0-35B**, MIT-licensed agentic-coding RL model post-trained on a Qwen-3.5-series MoE base — `qwen35moe` arch, ~3B active, Q4_K_M; **text-only — no vision**; ~112 tok/s @128K, Codex profile `ollama-ornith-35b`)                                                                                                                                                                       |
-| `_ollama_serve_common.sh`                  | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in `~/.ollama_active_model`                                                                                                                                                                                                                                            |
-| `source_local.sh` / `.csh`                  | LOCAL mode: export Claude Code `ANTHROPIC_*` + alias `claude`/`codex` to local                                                                                                                                                                                                                                                                                                |
-| `source_cloud.sh` / `.csh`                  | CLOUD mode: unset those env vars and `unalias claude`/`codex`                                                                                                                                                                                                                                                                                                                   |
+| File                                         | Role                                                                                                                                                                                                                                                                                                   |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `up_version.csh`                           | Reinstall Ollama to the latest release, stop/disable the systemd unit, and print the version (manual update helper)                                                                                                                                                                                    |
+| `start_ollama_qwen36_35b.sh`               | Thin launcher for`qwen3.6:35b-a3b-mtp-q4_K_M` (default; Qwen3.6-35B-A3B MoE, ~3B active, thinking-capable; override `MODEL=qwen3.6:35b` for non-MTP)                                                                                                                                               |
+| `start_ollama_qwen36_uncensored_vision.sh` | Thin launcher for`fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:Q4` (optional; uncensored derivative of the default that **keeps vision** — handles image/PDF input; ~109 tok/s @128K, Codex profile `ollama-qwen36-uncensored-vision`)                                      |
+| `start_ollama_ornith_35b.sh`               | Thin launcher for`ornith:35b` (optional; **DeepReinforce Ornith-1.0-35B**, MIT-licensed agentic-coding RL model post-trained on a Qwen-3.5-series MoE base — `qwen35moe` arch, ~3B active, Q4_K_M; **text-only — no vision**; ~112 tok/s @128K, Codex profile `ollama-ornith-35b`) |
+| `_ollama_serve_common.sh`                  | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in`~/.ollama_active_model`                                                                                                                                                                |
+| `ocr_to_md.sh`                             | Vision-as-preprocessing helper: OCR an image/PDF to Markdown with a small dedicated model (`glm-ocr`) so a text-only agentic model (`ornith:35b`) can consume it — see [Vision via OCR preprocessing](#vision-via-ocr-preprocessing)                                                               |
+| `source_local.sh` / `.csh`               | LOCAL mode: export Claude Code`ANTHROPIC_*` + alias `claude`/`codex` to local                                                                                                                                                                                                                    |
+| `source_cloud.sh` / `.csh`               | CLOUD mode: unset those env vars and`unalias claude`/`codex`                                                                                                                                                                                                                                       |
 
 ---
 
@@ -425,11 +426,11 @@ listed builds; use the formula only for first-pass sizing of new candidates.
 **VRAM ↔ context length (measured + estimated).** The 4K auto-limit below 24 GB is
 the only hard rule; usable context above it depends on weight size and offload:
 
-| GPU VRAM | Practical context        | Notes                                                                                                       |
-| -------- | ------------------------ | ----------------------------------------------------------------------------------------------------------- |
-| < 24 GB  | 4K (auto), raise w/ care | Ollama auto-limits to 4K; larger needs explicit override + RAM spill                                        |
+| GPU VRAM | Practical context        | Notes                                                                                                                                                                              |
+| -------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| < 24 GB  | 4K (auto), raise w/ care | Ollama auto-limits to 4K; larger needs explicit override + RAM spill                                                                                                               |
 | 24 GB    | up to ~128K              | **Measured** on RTX 3090 — per-model detail in the table below (q8_0 KV cache; at 128K the default MTP build spills to a 4%/96% CPU/GPU split, the other two stay 100% GPU) |
-| 48 GB+   | 256K+ (estimate)         | Report-derived,**not measured** here; confirm with `ollama ps`                                      |
+| 48 GB+   | 256K+ (estimate)         | Report-derived,**not measured** here; confirm with `ollama ps`                                                                                                             |
 
 > The 24 GB row is measured on this host; other rows are estimates to be confirmed
 > per environment via the `ollama ps` `CONTEXT` column and CPU/GPU split.
@@ -438,11 +439,11 @@ the only hard rule; usable context above it depends on weight size and offload:
 processor split from `ollama ps`, throughput from `/api/generate`
 (`eval_count` ÷ `eval_duration`). Measured at the current wrapper default of **128000**, **lightly loaded** (KV cache mostly empty — see caveat below):
 
-| Model                                                               | Context | Processor           | VRAM (SIZE)             | Throughput |
-| ------------------------------------------------------------------- | ------- | ------------------- | ----------------------- | ---------- |
-| `qwen3.6:35b-a3b-mtp-q4_K_M`                                      | 128000  | **4%/96% CPU/GPU**  | 22 GB (spills to CPU)   | ~90 tok/s  |
-| `fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:Q4` | 128000  | 100% GPU            | 23 GB (vision-capable)  | ~109 tok/s |
-| `ornith:35b`                                                     | 128000  | 100% GPU            | 22 GB (text-only)       | ~112 tok/s |
+| Model                                                               | Context | Processor                | VRAM (SIZE)            | Throughput |
+| ------------------------------------------------------------------- | ------- | ------------------------ | ---------------------- | ---------- |
+| `qwen3.6:35b-a3b-mtp-q4_K_M`                                      | 128000  | **4%/96% CPU/GPU** | 22 GB (spills to CPU)  | ~90 tok/s  |
+| `fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:Q4` | 128000  | 100% GPU                 | 23 GB (vision-capable) | ~109 tok/s |
+| `ornith:35b`                                                      | 128000  | 100% GPU                 | 22 GB (text-only)      | ~112 tok/s |
 
 > **Raising the wrapper default 96K → 128K no longer leaves the default MTP build
 > fully on the GPU.** At 128000, `ollama ps` reports a **4%/96% CPU/GPU split** for
@@ -484,10 +485,10 @@ The env files toggle **Claude Code only** (`ANTHROPIC_*`). They deliberately
 do **not** touch any `OPENAI_*` variable — Codex's cloud OpenAI client reads
 those too, so exporting them would silently redirect Codex to the local server.
 
-| File                        | Mode          | Effect                                                                                                                                                                                                                                                                                                               |
-| --------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `source_local.sh` / `.csh` | LOCAL(Ollama) | export `ANTHROPIC_BASE_URL=:11434`, `ANTHROPIC_AUTH_TOKEN=ollama`, `ANTHROPIC_API_KEY=""`, `OLLAMA_HOST`, `DISABLE_COMPACT=1`, `CLAUDE_CODE_MAX_CONTEXT_TOKENS=128000` (see [Context window](#context-window-in-local-mode)); alias `claude`/`codex` to local (see [Aliases](#aliases-set-by-source_localsh)) |
-| `source_cloud.sh` / `.csh` | CLOUD         | unset the above (tcsh `unsetenv`) and `unalias claude` / `codex`; re-set `ANTHROPIC_API_KEY` if you authenticate by key                                                                                                                                                                                      |
+| File                           | Mode          | Effect                                                                                                                                                                                                                                                                                                                     |
+| ------------------------------ | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `source_local.sh` / `.csh` | LOCAL(Ollama) | export`ANTHROPIC_BASE_URL=:11434`, `ANTHROPIC_AUTH_TOKEN=ollama`, `ANTHROPIC_API_KEY=""`, `OLLAMA_HOST`, `DISABLE_COMPACT=1`, `CLAUDE_CODE_MAX_CONTEXT_TOKENS=128000` (see [Context window](#context-window-in-local-mode)); alias `claude`/`codex` to local (see [Aliases](#aliases-set-by-source_localsh)) |
+| `source_cloud.sh` / `.csh` | CLOUD         | unset the above (tcsh`unsetenv`) and `unalias claude` / `codex`; re-set `ANTHROPIC_API_KEY` if you authenticate by key                                                                                                                                                                                             |
 
 ### Context window in LOCAL mode
 
@@ -522,10 +523,10 @@ each alias selects is **no longer hard-coded** — it is **auto-detected from th
 running launcher** and can still be overridden by two env vars you set **before**
 sourcing:
 
-| Env var (override before sourcing) | Default                                              | Controls                                          |
-| ---------------------------------- | ---------------------------------------------------- | ------------------------------------------------- |
-| `LOCALLLM_MODEL`                 | auto (marker → else `qwen3.6:35b-a3b-mtp-q4_K_M`) | the model tag pinned by the `claude` alias      |
-| `LOCALLLM_CODEX_PROFILE`         | derived from `LOCALLLM_MODEL`                      | the Codex profile selected by the `codex` alias |
+| Env var (override before sourcing) | Default                                             | Controls                                         |
+| ---------------------------------- | --------------------------------------------------- | ------------------------------------------------ |
+| `LOCALLLM_MODEL`                 | auto (marker → else`qwen3.6:35b-a3b-mtp-q4_K_M`) | the model tag pinned by the`claude` alias      |
+| `LOCALLLM_CODEX_PROFILE`         | derived from`LOCALLLM_MODEL`                      | the Codex profile selected by the`codex` alias |
 
 **Auto-detection (marker file).** Each start script records the launched model
 tag in `~/.ollama_active_model` (written by `_ollama_serve_common.sh` as soon as
@@ -559,9 +560,9 @@ source ollama/source_local.sh                 # claude alias → claude --model 
 
 The two env files resolve the aliases at source time:
 
-| Alias                                                                                         | Why                                                                                                                 |
-| --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `claude` → `claude --model $LOCALLLM_MODEL`                                              | env already targets Ollama; the alias just pins the model name                                                      |
+| Alias                                                                                        | Why                                                                                                                |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `claude` → `claude --model $LOCALLLM_MODEL`                                             | env already targets Ollama; the alias just pins the model name                                                     |
 | `codex` → `codex --profile $LOCALLLM_CODEX_PROFILE -c mcp_servers.notion.enabled=false` | Codex shares no env (OPENAI_* stays unset), so the profile flag selects local; Notion MCP is disabled only locally |
 
 `source_local.sh` also exports `LOCALLLM_MODEL` / `LOCALLLM_CODEX_PROFILE` so the
@@ -689,3 +690,77 @@ codex --profile ollama-qwen36-uncensored-vision # local Uncensored + vision (loa
 codex --profile ollama-ornith-35b        # local ornith:35b (loads ollama-ornith-35b.config.toml)
 codex                                    # cloud (default profile)
 ```
+
+---
+
+## Vision via OCR preprocessing
+
+The text-only agentic models (notably `ornith:35b` — the best-scoring agentic
+coder here, but **no vision**) cannot read images or PDFs. The clean way to give
+them "eyes" on a single 24 GB GPU is **not** to co-load a vision model — a ~22 GB
+text model plus a vision tower does not safely fit 24 GB — but to **decouple
+vision as a preprocessing step**:
+
+```
+[PDF / image]  ──ocr_to_md.sh──▶  [<input>.md]  ──▶  ornith (direct connect)
+   input          (glm-ocr)         cached text        consumes as text
+```
+
+`ocr_to_md.sh` runs a **small dedicated OCR model** (`glm-ocr`, Z.ai;
+`glm-ocr:latest` is F16 and loads at ~7 GB / 100 % GPU here, `glm-ocr:q8_0` is
+smaller; text+image, layout/table/formula aware) over the input and writes
+Markdown to `<input>.md`. Run it **while the big text model is not loaded**, so
+the OCR model has the GPU to itself; then start `ornith:35b` and feed it the
+`.md`. No VRAM contention, and ornith keeps its full context at 100 % GPU.
+
+> **glm-ocr call convention (important, verified here).** glm-ocr only behaves
+> with its **exact predefined prompt** (`Text Recognition:`, also
+> `Formula Recognition:` / `Table Recognition:`) and **greedy decoding**
+> (`temperature 0`); the script sends these. A free-form prompt makes its
+> renderer/parser degenerate. Even correctly called, this Ollama build (0.31.1)
+> emits the clean transcription and then **echoes it inside a ``markdown fence**, which on sparse pages runs away into endless `` lines — so `ocr_to_md.sh`
+> **post-processes**: it keeps the leading transcription, cuts at the first code
+> fence, and stops on a repeated-line runaway. On real documents the result is
+> clean; a near-empty page may leave a few duplicate lines (bounded, not
+> infinite).
+
+> **Why not co-resident?** `22 GB (text) + 1.6 GB (OCR)` = 23.6 GB before the
+> vision projector, image embeddings, and KV cache — it overflows 24 GB and
+> either spills to CPU or forces a slow evict/reload on every OCR call. Sequential
+> use (OCR first, then the agent) sidesteps this entirely. If you truly need OCR
+> *during* an agent loop, shrink the text model instead (`OLLAMA_KV_CACHE_TYPE=q4_0`
+> and/or lower `OLLAMA_CONTEXT_LENGTH` so it sits ~19–20 GB) and set
+> `OLLAMA_MAX_LOADED_MODELS=2` — but the preprocessing flow below is the default.
+
+### Usage
+
+```bash
+# 1. Pull the OCR model once (manual operator step, like any new tag)
+ollama pull glm-ocr:latest              # or glm-ocr:q8_0 for lower VRAM
+
+# 2. Make sure an Ollama daemon is up. A bare 'ollama serve' is enough for OCR —
+#    do NOT run the 22 GB text launcher at the same time (keep VRAM free).
+ollama serve &
+
+# 3. OCR an image or PDF to Markdown (writes <input>.md next to the input)
+./ocr_to_md.sh spec.pdf                 # -> spec.pdf.md
+./ocr_to_md.sh diagram.png notes.md     # explicit output path
+./ocr_to_md.sh --force spec.pdf         # regenerate even if spec.pdf.md exists
+
+# 4. Now start the text model and work on the cached Markdown
+./start_ollama_ornith_35b.sh            # (stop the OCR 'serve' first if separate)
+source ollama/source_local.sh           # tcsh: source ollama/source_local.csh
+claude                                   # feed it spec.pdf.md
+```
+
+PDFs are rasterized per page with `pdftoppm` (Ollama's vision endpoint takes
+images only), OCR'd page by page via `/api/generate`, and concatenated into one
+Markdown file with `---` page separators. Existing `<input>.md` is **skipped**
+unless `--force` is given, so OCR'd documents are cached and reused.
+
+Env overrides (same style as the launchers): `OCR_MODEL` (default
+`glm-ocr:latest`; `glm-ocr:q8_0` for lower VRAM, or e.g. `qwen2.5vl:3b-q4_K_M`
+for stronger table/layout at ~2× the VRAM), `OCR_DPI` (default `200`; raise to
+`300` for dense figures), `OCR_PROMPT` (default `Text Recognition:` — keep it a
+glm-ocr predefined prompt), `OCR_NUM_PREDICT` (default `8192` output-token cap),
+`OLLAMA_HOST`.
