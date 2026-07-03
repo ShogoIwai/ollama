@@ -696,22 +696,26 @@ codex                                    # cloud (default profile)
 ## Vision via OCR preprocessing
 
 The text-only agentic models (notably `ornith:35b` — the best-scoring agentic
-coder here, but **no vision**) cannot read images or PDFs. The clean way to give
-them "eyes" on a single 24 GB GPU is **not** to co-load a vision model — a ~22 GB
-text model plus a vision tower does not safely fit 24 GB — but to **decouple
-vision as a preprocessing step**:
+coder here, but **no vision**) cannot read images or PDFs. The way to give them
+"eyes" is to run a **small dedicated OCR model** (`glm-ocr`, Z.ai;
+`glm-ocr:latest` is F16 and loads at ~7 GB / 100 % GPU here, `glm-ocr:q8_0` is
+smaller; text+image, layout/table/formula aware) over the input and write
+Markdown to `<input>.md`. The OCR result is cached as a `.md` file next to the
+input — it can then be fed to any agentic model via direct connect.
 
 ```
 [PDF / image]  ──ocr_to_md.sh──▶  [<input>.md]  ──▶  ornith (direct connect)
    input          (glm-ocr)         cached text        consumes as text
 ```
 
-`ocr_to_md.sh` runs a **small dedicated OCR model** (`glm-ocr`, Z.ai;
-`glm-ocr:latest` is F16 and loads at ~7 GB / 100 % GPU here, `glm-ocr:q8_0` is
-smaller; text+image, layout/table/formula aware) over the input and writes
-Markdown to `<input>.md`. Run it **while the big text model is not loaded**, so
-the OCR model has the GPU to itself; then start `ornith:35b` and feed it the
-`.md`. No VRAM contention, and ornith keeps its full context at 100 % GPU.
+> **Co-resident with the agentic model — confirmed working.** The original
+> assumption was that a ~22 GB text model plus `glm-ocr` would not fit on 24 GB,
+> but in practice `ollama/ocr_to_md.sh` runs successfully while `ornith:35b` is
+> already loaded in the daemon. Both models reside simultaneously and the OCR
+> step completes without displacing the text model — so you can run OCR → text
+> inference in one sitting with no launcher swap. The preprocessing flow below
+> remains the recommended approach for PDFs (sequential page-by-page OCR), but
+> there is **no need to stop the text launcher first**.
 
 > **glm-ocr call convention (important, verified here).** glm-ocr only behaves
 > with its **exact predefined prompt** (`Text Recognition:`, also
@@ -724,34 +728,36 @@ the OCR model has the GPU to itself; then start `ornith:35b` and feed it the
 > clean; a near-empty page may leave a few duplicate lines (bounded, not
 > infinite).
 
-> **Why not co-resident?** `22 GB (text) + 1.6 GB (OCR)` = 23.6 GB before the
-> vision projector, image embeddings, and KV cache — it overflows 24 GB and
-> either spills to CPU or forces a slow evict/reload on every OCR call. Sequential
-> use (OCR first, then the agent) sidesteps this entirely. If you truly need OCR
-> *during* an agent loop, shrink the text model instead (`OLLAMA_KV_CACHE_TYPE=q4_0`
-> and/or lower `OLLAMA_CONTEXT_LENGTH` so it sits ~19–20 GB) and set
-> `OLLAMA_MAX_LOADED_MODELS=2` — but the preprocessing flow below is the default.
-
 ### Usage
 
 ```bash
 # 1. Pull the OCR model once (manual operator step, like any new tag)
 ollama pull glm-ocr:latest              # or glm-ocr:q8_0 for lower VRAM
 
-# 2. Make sure an Ollama daemon is up. A bare 'ollama serve' is enough for OCR —
-#    do NOT run the 22 GB text launcher at the same time (keep VRAM free).
-ollama serve &
+# 2. Start the agentic text model (no need to stop it — OCR runs alongside)
+./start_ollama_ornith_35b.sh
 
 # 3. OCR an image or PDF to Markdown (writes <input>.md next to the input)
 ./ocr_to_md.sh spec.pdf                 # -> spec.pdf.md
 ./ocr_to_md.sh diagram.png notes.md     # explicit output path
 ./ocr_to_md.sh --force spec.pdf         # regenerate even if spec.pdf.md exists
 
-# 4. Now start the text model and work on the cached Markdown
-./start_ollama_ornith_35b.sh            # (stop the OCR 'serve' first if separate)
+# 4. Feed the cached Markdown to the agentic model (ornith is already loaded)
 source ollama/source_local.sh           # tcsh: source ollama/source_local.csh
 claude                                   # feed it spec.pdf.md
 ```
+
+`ocr_to_md.sh` rasterizes PDFs page by page with `pdftoppm`, OCR's each via
+`/api/generate`, and concatenates into one Markdown file with `---` page
+separators. Existing `<input>.md` is **skipped** unless `--force` is given, so
+OCR'd documents are cached and reused.
+
+Env overrides (same style as the launchers): `OCR_MODEL` (default
+`glm-ocr:latest`; `glm-ocr:q8_0` for lower VRAM, or e.g. `qwen2.5vl:3b-q4_K_M`
+for stronger table/layout at ~2× the VRAM), `OCR_DPI` (default `200`; raise to
+`300` for dense figures), `OCR_PROMPT` (default `Text Recognition:` — keep it a
+glm-ocr predefined prompt), `OCR_NUM_PREDICT` (default `8192` output-token cap),
+`OLLAMA_HOST`.
 
 PDFs are rasterized per page with `pdftoppm` (Ollama's vision endpoint takes
 images only), OCR'd page by page via `/api/generate`, and concatenated into one
