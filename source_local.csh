@@ -77,6 +77,9 @@ if (! $?LOCALLLM_CODEX_PROFILE) then
         case qwen3.6:*:
             setenv LOCALLLM_CODEX_PROFILE "ollama-qwen36-35b"
             breaksw
+        case robit/ornith-vision:*:
+            setenv LOCALLLM_CODEX_PROFILE "ollama-ornith-vision-35b"
+            breaksw
         case ornith:*:
             setenv LOCALLLM_CODEX_PROFILE "ollama-ornith-35b"
             breaksw

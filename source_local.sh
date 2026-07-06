@@ -65,6 +65,7 @@ if [ -z "${LOCALLLM_CODEX_PROFILE:-}" ]; then
     case "${LOCALLLM_MODEL}" in
         fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:*) LOCALLLM_CODEX_PROFILE="ollama-qwen36-uncensored-vision" ;;
         qwen3.6:*)            LOCALLLM_CODEX_PROFILE="ollama-qwen36-35b" ;;
+        robit/ornith-vision:*) LOCALLLM_CODEX_PROFILE="ollama-ornith-vision-35b" ;;
         ornith:*)            LOCALLLM_CODEX_PROFILE="ollama-ornith-35b" ;;
         *)                    LOCALLLM_CODEX_PROFILE="ollama-local" ;;
     esac

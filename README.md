@@ -217,6 +217,7 @@ marker to fall back to the `qwen3.6:35b-a3b-mtp-q4_K_M` default.
 | `start_ollama_qwen36_35b.sh`               | Thin launcher for`qwen3.6:35b-a3b-mtp-q4_K_M` (default; Qwen3.6-35B-A3B MoE, ~3B active, thinking-capable; override `MODEL=qwen3.6:35b` for non-MTP)                                                                                                                                               |
 | `start_ollama_qwen36_uncensored_vision.sh` | Thin launcher for`fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:Q4` (optional; uncensored derivative of the default that **keeps vision** — handles image/PDF input; ~109 tok/s @128K, Codex profile `ollama-qwen36-uncensored-vision`)                                      |
 | `start_ollama_ornith_35b.sh`               | Thin launcher for`ornith:35b` (optional; **DeepReinforce Ornith-1.0-35B**, MIT-licensed agentic-coding RL model post-trained on a Qwen-3.5-series MoE base — `qwen35moe` arch, ~3B active, Q4_K_M; **text-only — no vision**; ~112 tok/s @128K, Codex profile `ollama-ornith-35b`) |
+| `start_ollama_ornith_vision_35b.sh`        | Thin launcher for`robit/ornith-vision:35b` (optional; **vision-capable** Ornith build — same `qwen35moe` arch/~3B active/Q4_K_M but **bundles a vision projector**, so it handles image/PDF input directly, no `ocr_to_md.sh` step; ~114 tok/s @128K, Codex profile `ollama-ornith-vision-35b`) |
 | `_ollama_serve_common.sh`                  | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in`~/.ollama_active_model`                                                                                                                                                                |
 | `ocr_to_md.sh`                             | Vision-as-preprocessing helper: OCR an image/PDF to Markdown with a small dedicated model (`glm-ocr`) so a text-only agentic model (`ornith:35b`) can consume it — see [Vision via OCR preprocessing](#vision-via-ocr-preprocessing)                                                               |
 | `source_local.sh` / `.csh`               | LOCAL mode: export Claude Code`ANTHROPIC_*` + alias `claude`/`codex` to local                                                                                                                                                                                                                    |
@@ -257,6 +258,7 @@ ollama run qwen3.6:35b-a3b-mtp-q4_K_M      # optional REPL smoke test
 ./start_ollama_qwen36_35b.sh         # qwen3.6:35b-a3b-mtp-q4_K_M (default; override MODEL=qwen3.6:35b for non-MTP)
 ./start_ollama_qwen36_uncensored_vision.sh  # fredrezones55/Qwen3.6-...-HauhauCS-Aggressive:Q4 (optional; uncensored + vision for image/PDF)
 ./start_ollama_ornith_35b.sh                # ornith:35b (optional; qwen35moe-arch MoE, Q4_K_M, text-only)
+./start_ollama_ornith_vision_35b.sh         # robit/ornith-vision:35b (optional; Ornith + vision projector, image/PDF direct)
 ```
 
 Each launcher is a thin wrapper: it sets the `MODEL` tag and sources the shared
@@ -412,6 +414,26 @@ direct-connect is the recommended pairing for text-only agentic use. Launch with
 `./start_ollama_ornith_35b.sh` (Codex profile `ollama-ornith-35b`, overlay
 `~/.codex/ollama-ornith-35b.config.toml`).
 
+**robit/ornith-vision:35b (`robit/ornith-vision:35b`, measured — adopted).**
+Optional launcher. The **vision-capable** build of the same **Ornith-1.0-35B**
+agentic-coding model above — identical `qwen35moe` MoE base (~3B active, Q4_K_M,
+~23 GB weights, native 262144/256K context), but this tag **bundles a vision
+projector**, so `/api/show` reports capabilities
+`['completion','vision','tools','thinking']` (**with `vision`**). That lets it
+consume images / PDF pages **directly**, removing the `ocr_to_md.sh`
+preprocessing hop the text-only build needs. **Measured on this host (RTX 3090
+24GB)** with the shared wrapper settings at the 128K default: **100% GPU, 23 GB
+resident, ~114 tok/s gen (prompt ~403 tok/s)**; a vision OCR smoke test read
+back image text correctly, and an `/api/chat` tool-call test returned a
+**structured `tool_calls` block with empty `content`** (`think:false`).
+**Caveat — do not raise context past ~128K:** loaded at its native 256K it
+spills to ~92% GPU / 8% CPU on a 24 GB GPU and **vision inference then fails with
+`unexpected EOF`**; the shared core caps `OLLAMA_CONTEXT_LENGTH` at 128K, which
+keeps it 100% GPU and working. Launch with
+`./start_ollama_ornith_vision_35b.sh` (Codex profile
+`ollama-ornith-vision-35b`, overlay
+`~/.codex/ollama-ornith-vision-35b.config.toml`).
+
 **Sizing a new model (rough estimate).** Before pulling, estimate weight memory as:
 
 ```
@@ -444,6 +466,7 @@ processor split from `ollama ps`, throughput from `/api/generate`
 | `qwen3.6:35b-a3b-mtp-q4_K_M`                                      | 128000  | **4%/96% CPU/GPU** | 22 GB (spills to CPU)  | ~90 tok/s  |
 | `fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:Q4` | 128000  | 100% GPU                 | 23 GB (vision-capable) | ~109 tok/s |
 | `ornith:35b`                                                      | 128000  | 100% GPU                 | 22 GB (text-only)      | ~112 tok/s |
+| `robit/ornith-vision:35b`                                         | 128000  | 100% GPU                 | 23 GB (vision-capable) | ~114 tok/s |
 
 > **Raising the wrapper default 96K → 128K no longer leaves the default MTP build
 > fully on the GPU.** At 128000, `ollama ps` reports a **4%/96% CPU/GPU split** for
@@ -540,7 +563,9 @@ explicit `setenv`/`export LOCALLLM_MODEL` before sourcing always wins.
 `LOCALLLM_CODEX_PROFILE`, when unset, is **derived from `LOCALLLM_MODEL`** via a
 `switch` in `source_local.csh`:
 `fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:*` ⇒
-`ollama-qwen36-uncensored-vision`, `qwen3.6:*` ⇒ `ollama-qwen36-35b`, everything else ⇒
+`ollama-qwen36-uncensored-vision`, `qwen3.6:*` ⇒ `ollama-qwen36-35b`,
+`robit/ornith-vision:*` ⇒ `ollama-ornith-vision-35b`, `ornith:*` ⇒
+`ollama-ornith-35b`, everything else ⇒
 `ollama-local`. (Each model gets its own explicit case, so an unlisted variant
 defaults to `ollama-local`.) Add one
 `case` + a matching overlay file per new local model.
@@ -607,7 +632,8 @@ Notion MCP setting. You can still invoke either explicitly
 regardless of which file is sourced. By default `LOCALLLM_CODEX_PROFILE` is
 **auto-derived from the detected `LOCALLLM_MODEL`** (see the auto-detection note above):
 `fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:*` ⇒ `ollama-qwen36-uncensored-vision`,
-`qwen3.6:*` ⇒ `ollama-qwen36-35b`, otherwise ⇒ `ollama-local` (one
+`qwen3.6:*` ⇒ `ollama-qwen36-35b`, `robit/ornith-vision:*` ⇒ `ollama-ornith-vision-35b`,
+`ornith:*` ⇒ `ollama-ornith-35b`, otherwise ⇒ `ollama-local` (one
 explicit case per model). To force a specific profile, set
 `LOCALLLM_CODEX_PROFILE` before sourcing — Codex picks the model per profile
 (overlay file), not per env var, so each profile needs its own overlay file
