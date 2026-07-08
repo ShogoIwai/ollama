@@ -1,5 +1,5 @@
 #!/bin/sh
-# ocr_to_md.sh — Vision-as-preprocessing (案B): convert an image or PDF to
+# ocr_to_md.sh — Vision-as-preprocessing: convert an image or PDF to
 # Markdown text with a small dedicated OCR model, so a text-only agentic model
 # (e.g. ornith:35b) can consume the result without ever loading a vision tower.
 #
