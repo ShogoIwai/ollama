@@ -15,7 +15,7 @@
 #   ./ocr_to_md.sh --force <input> [output.md]  # regenerate even if .md exists
 #
 # Env overrides (same style as the launchers):
-#   OCR_MODEL        OCR model tag       (default: glm-ocr:latest; glm-ocr:q8_0 is
+#   OCR_MODEL        OCR model tag       (default: glm-ocr:bf16; glm-ocr:q8_0 is
 #                    smaller if VRAM is tight)
 #   OCR_DPI          PDF raster DPI      (default: 200; raise to 300 for dense figures)
 #   OCR_PROMPT       OCR task prompt     (default: "Text Recognition:" — glm-ocr's
@@ -30,7 +30,7 @@
 # per page with pdftoppm and OCR'd page by page, then concatenated.
 set -eu
 
-OCR_MODEL="${OCR_MODEL:-glm-ocr:latest}"
+OCR_MODEL="${OCR_MODEL:-glm-ocr:bf16}"
 OCR_DPI="${OCR_DPI:-200}"
 # glm-ocr requires its exact predefined prompt and greedy decoding via the
 # model's built-in template; a free-form prompt makes it degenerate into endless
@@ -40,10 +40,14 @@ OCR_NUM_PREDICT="${OCR_NUM_PREDICT:-8192}"
 OLLAMA_HOST="${OLLAMA_HOST:-http://localhost:11434}"
 
 FORCE=0
-if [ "${1:-}" = "--force" ]; then
-  FORCE=1
-  shift
-fi
+ARGS=""
+for arg in "$@"; do
+  case "$arg" in
+    --force) FORCE=1 ;;
+    *) ARGS="${ARGS:+$ARGS }$arg" ;;
+  esac
+done
+set -- $ARGS
 
 if [ $# -lt 1 ] || [ $# -gt 2 ]; then
   echo "usage: $0 [--force] <input.pdf|image> [output.md]" >&2

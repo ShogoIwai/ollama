@@ -724,7 +724,7 @@ codex                                    # cloud (default profile)
 The text-only agentic models (notably `ornith:35b` — the best-scoring agentic
 coder here, but **no vision**) cannot read images or PDFs. The way to give them
 "eyes" is to run a **small dedicated OCR model** (`glm-ocr`, Z.ai;
-`glm-ocr:latest` is F16 and loads at ~7 GB / 100 % GPU here, `glm-ocr:q8_0` is
+`glm-ocr:bf16` loads at ~7 GB / 100 % GPU here, `glm-ocr:q8_0` is
 smaller; text+image, layout/table/formula aware) over the input and write
 Markdown to `<input>.md`. The OCR result is cached as a `.md` file next to the
 input — it can then be fed to any agentic model via direct connect.
@@ -758,7 +758,7 @@ input — it can then be fed to any agentic model via direct connect.
 
 ```bash
 # 1. Pull the OCR model once (manual operator step, like any new tag)
-ollama pull glm-ocr:latest              # or glm-ocr:q8_0 for lower VRAM
+ollama pull glm-ocr:bf16                # or glm-ocr:q8_0 for lower VRAM
 
 # 2. Start the agentic text model (no need to stop it — OCR runs alongside)
 ./start_ollama_ornith_35b.sh
@@ -779,7 +779,7 @@ separators. Existing `<input>.md` is **skipped** unless `--force` is given, so
 OCR'd documents are cached and reused.
 
 Env overrides (same style as the launchers): `OCR_MODEL` (default
-`glm-ocr:latest`; `glm-ocr:q8_0` for lower VRAM, or e.g. `qwen2.5vl:3b-q4_K_M`
+`glm-ocr:bf16`; `glm-ocr:q8_0` for lower VRAM, or e.g. `qwen2.5vl:3b-q4_K_M`
 for stronger table/layout at ~2× the VRAM), `OCR_DPI` (default `200`; raise to
 `300` for dense figures), `OCR_PROMPT` (default `Text Recognition:` — keep it a
 glm-ocr predefined prompt), `OCR_NUM_PREDICT` (default `8192` output-token cap),
@@ -791,7 +791,7 @@ Markdown file with `---` page separators. Existing `<input>.md` is **skipped**
 unless `--force` is given, so OCR'd documents are cached and reused.
 
 Env overrides (same style as the launchers): `OCR_MODEL` (default
-`glm-ocr:latest`; `glm-ocr:q8_0` for lower VRAM, or e.g. `qwen2.5vl:3b-q4_K_M`
+`glm-ocr:bf16`; `glm-ocr:q8_0` for lower VRAM, or e.g. `qwen2.5vl:3b-q4_K_M`
 for stronger table/layout at ~2× the VRAM), `OCR_DPI` (default `200`; raise to
 `300` for dense figures), `OCR_PROMPT` (default `Text Recognition:` — keep it a
 glm-ocr predefined prompt), `OCR_NUM_PREDICT` (default `8192` output-token cap),
