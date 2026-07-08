@@ -337,9 +337,8 @@ publishes the 35B only at q4_K_M (`qwen3.6:35b` 24GB) or the MTP build
 (`…-mtp-q4_K_M` 23GB) — **no smaller q2/q3 quant**. **Measured on this host (RTX
 3090 24GB):** with the wrapper's `OLLAMA_KV_CACHE_TYPE=q8_0` + flash attention it
 loads at **22 GB resident, ~90 tok/s
-generation** — but at the current **128K** default `ollama ps` shows a **4%/96%
-CPU/GPU split** (the larger 128K allocation is the likely cause, not isolated); at
-the previous 96K default it fit at **100% GPU** (~87 tok/s). The q8_0 KV cache is what keeps it
+generation** — but the current **128K** default `ollama ps` shows a **4%/96%
+CPU/GPU split** (the larger 128K allocation is the likely cause, not isolated). The q8_0 KV cache is what keeps it
 even this close to fitting the full context alongside the weights in 24 GB. The 3B-active MoE is what makes a 35B
 model this fast. This is the **default** local model. Its ~3B active params are
 the structural ceiling on heavy long-document / multi-step reasoning; lifting that
@@ -369,7 +368,7 @@ PDF/image input. `Q4` ≈ 22GB weights. **Measured on this host (RTX 3090 24GB)*
 with the shared wrapper settings (`OLLAMA_KV_CACHE_TYPE=q8_0` + flash attention):
 `/api/show` capabilities `['completion','vision','tools','thinking']` (**vision
 present** — projector is bundled), **100% GPU, ~23 GB resident** at the current 128K
-default (~109 tok/s; ~125 tok/s at the previous 96K default), and a `/api/chat` tool-call smoke test returned a
+default (~109 tok/s), and a `/api/chat` tool-call smoke test returned a
 **structured `tool_calls` block with empty `content`** (`think:false`, no thinking
 leak); **both Claude Code and Codex were confirmed running on it via direct
 connect**. Caveats: it is a **non-official derivative** (weaker
@@ -386,7 +385,7 @@ curl -s http://127.0.0.1:11434/api/show \
 # expect: capabilities: ['completion', 'vision', 'tools', 'thinking']
 ```
 
-Being vision-capable it resides ~22 GB on the RTX 3090 (comparable to the official
+Being vision-capable it resides ~23 GB on the RTX 3090 (comparable to the official
 default), so watch KV-cache headroom under heavy context.
 Launch with `./start_ollama_qwen36_uncensored_vision.sh` (Codex profile
 `ollama-qwen36-uncensored-vision`, overlay `~/.codex/ollama-qwen36-uncensored-vision.config.toml`).
@@ -405,7 +404,7 @@ open-source agentic coding assistant"*). Registry config: `model_type 34.7B`,
 carries **no projector layer**, so it is **text-only** (no vision). **Measured on
 this host (RTX 3090 24GB)** with the shared wrapper settings
 (`OLLAMA_KV_CACHE_TYPE=q8_0` + flash attention): `/api/show` capabilities
-`['completion','tools','thinking']` (**no `vision`**), **100% GPU, 22 GB resident** at the current 128K default (~112 tok/s, prompt ~1236 tok/s; ~111 tok/s at the previous 96K default), and a `/api/chat`
+`['completion','tools','thinking']` (**no `vision`**), **100% GPU, 22 GB resident** at the current 128K default (~112 tok/s, prompt ~1236 tok/s), and a `/api/chat`
 tool-call smoke test returned a **structured `tool_calls` block with empty
 `content`** (`think:false`, no thinking leak); **Claude Code was confirmed running
 on it via direct connect**. DeepReinforce's own benchmarks report the **Claude Code
@@ -451,7 +450,7 @@ the only hard rule; usable context above it depends on weight size and offload:
 | GPU VRAM | Practical context        | Notes                                                                                                                                                                              |
 | -------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | < 24 GB  | 4K (auto), raise w/ care | Ollama auto-limits to 4K; larger needs explicit override + RAM spill                                                                                                               |
-| 24 GB    | up to ~128K              | **Measured** on RTX 3090 — per-model detail in the table below (q8_0 KV cache; at 128K the default MTP build spills to a 4%/96% CPU/GPU split, the other two stay 100% GPU) |
+| 24 GB    | up to ~128K              | **Measured** on RTX 3090 — per-model detail in the table below (q8_0 KV cache; at 128K the default MTP build spills to a 4%/96% CPU/GPU split, other listed builds stay 100% GPU) |
 | 48 GB+   | 256K+ (estimate)         | Report-derived,**not measured** here; confirm with `ollama ps`                                                                                                             |
 
 > The 24 GB row is measured on this host; other rows are estimates to be confirmed
@@ -468,16 +467,6 @@ processor split from `ollama ps`, throughput from `/api/generate`
 | `ornith:35b`                                                      | 128000  | 100% GPU                 | 22 GB (text-only)      | ~112 tok/s |
 | `robit/ornith-vision:35b`                                         | 128000  | 100% GPU                 | 23 GB (vision-capable) | ~114 tok/s |
 
-> **Raising the wrapper default 96K → 128K no longer leaves the default MTP build
-> fully on the GPU.** At 128000, `ollama ps` reports a **4%/96% CPU/GPU split** for
-> `qwen3.6:35b-a3b-mtp-q4_K_M` even lightly loaded (throughput still ~90 tok/s here
-> since only 4% is on CPU); the larger 128K allocation is the likely cause but this
-> was not isolated. The uncensored-vision and `ornith:35b` builds still show
-> **100% GPU** at 128K. If the default's split matters for a run, restart it with
-> `OLLAMA_KV_CACHE_TYPE=q4_0` (halves KV VRAM) or lower `OLLAMA_CONTEXT_LENGTH` back
-> toward 96K. The 96K measurements (all three at 100% GPU: ~87 / ~125 / ~111 tok/s)
-> are preserved in git history.
-
 > The reported SIZE reflects a near-empty KV cache because Ollama allocates KV
 > lazily — at warm-up little of the 128K is in use. The default build already shows
 > a CPU split at warm-up (and the other two sit near the ceiling), so a task that
@@ -485,9 +474,8 @@ processor split from `ollama ps`, throughput from `/api/generate`
 > `ollama ps` under load; if the split worsens, restart with
 > `OLLAMA_KV_CACHE_TYPE=q4_0` (halves KV VRAM) or lower `OLLAMA_CONTEXT_LENGTH`.
 
-> The model has a **262144 (256K)** native context, but cannot use it on a
-> 24 GB GPU: the table above is now measured at the **128000** wrapper default (raised
-> from the previous 96K to give Claude Code agent runs more headroom). At 128K the
+> These models have a **262144 (256K)** native context, but cannot use it on a
+> 24 GB GPU: the table above is now measured at the **128000** wrapper default. At 128K the
 > q8_0 KV cache leaves so little headroom that the default `qwen3.6:35b-a3b-mtp-q4_K_M`
 > **already spills to a 4%/96% CPU/GPU split at warm-up** (the uncensored-vision and
 > ornith builds still fit at 100% GPU). Re-check `ollama ps` after a restart and fall
