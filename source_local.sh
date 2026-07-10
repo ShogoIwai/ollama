@@ -29,15 +29,17 @@ export ANTHROPIC_API_KEY=""
 # --- Context window: align Claude Code with the local model's real limit ---
 # Claude Code resolves the context window from a built-in per-model table keyed
 # on the model name. The Ollama tags (qwen3.6:*) are unknown to it,
-# so it falls back to 200000 and auto-compact never fires before Ollama's 128K
-# window (OLLAMA_CONTEXT_LENGTH) silently truncates the oldest tokens. The
-# only override env (CLAUDE_CODE_MAX_CONTEXT_TOKENS) is honored ONLY when
-# DISABLE_COMPACT is set (see bundle fn v87). So we trade auto-compact for an
-# honest /context gauge + "approaching limit" warning at the real 128K, and drive
-# /compact or /clear manually. source_cloud.sh unsets both. Override
-# CLAUDE_CODE_MAX_CONTEXT_TOKENS before sourcing if you raise the Ollama window.
+# so it falls back to 200000 and auto-compact never fires before Ollama's real
+# window (OLLAMA_CONTEXT_LENGTH, default 262144/256K) silently truncates the
+# oldest tokens. The only override env (CLAUDE_CODE_MAX_CONTEXT_TOKENS) is honored
+# ONLY when DISABLE_COMPACT is set (see bundle fn v87). So we trade auto-compact
+# for an honest /context gauge + "approaching limit" warning at the real window,
+# and drive /compact or /clear manually. source_cloud.sh unsets both. Override
+# CLAUDE_CODE_MAX_CONTEXT_TOKENS before sourcing if you lower the Ollama window.
 export DISABLE_COMPACT=1
-export CLAUDE_CODE_MAX_CONTEXT_TOKENS="${CLAUDE_CODE_MAX_CONTEXT_TOKENS:-128000}"
+# CLAUDE_CODE_MAX_CONTEXT_TOKENS is aligned per-model *below* (after the tag is
+# resolved) so the gauge matches each model's served Ollama window. An explicit
+# pre-set value still wins.
 
 # --- Model / profile selection (override before sourcing to switch model) ---
 # LOCALLLM_MODEL         picks the Ollama tag the `claude` alias pins (e.g.
@@ -63,12 +65,20 @@ fi
 # model unless explicitly set. Add a case + overlay file per new local model.
 if [ -z "${LOCALLLM_CODEX_PROFILE:-}" ]; then
     case "${LOCALLLM_MODEL}" in
-        fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:*) LOCALLLM_CODEX_PROFILE="ollama-qwen36-uncensored-vision" ;;
+        satgeze/qwen36-35b-uncensored-1m:*) LOCALLLM_CODEX_PROFILE="ollama-qwen36-uncensored-1m" ;;
         qwen3.6:*)            LOCALLLM_CODEX_PROFILE="ollama-qwen36-35b" ;;
-        robit/ornith-vision:*) LOCALLLM_CODEX_PROFILE="ollama-ornith-vision-35b" ;;
-        ornith:*)            LOCALLLM_CODEX_PROFILE="ollama-ornith-35b" ;;
         *)                    LOCALLLM_CODEX_PROFILE="ollama-local" ;;
     esac
+fi
+
+# Align Claude Code's context gauge to the model's SERVED Ollama window so the
+# "approaching limit" warning fires at the real truncation point. All local
+# models are qwen35moe-family builds served at the shared core's 256K (262144)
+# default, so 262144 matches every launcher's OLLAMA_CONTEXT_LENGTH. If you start
+# a launcher with a smaller OLLAMA_CONTEXT_LENGTH, pre-set this to match before
+# sourcing (explicit pre-set wins).
+if [ -z "${CLAUDE_CODE_MAX_CONTEXT_TOKENS:-}" ]; then
+    export CLAUDE_CODE_MAX_CONTEXT_TOKENS=262144
 fi
 export LOCALLLM_MODEL LOCALLLM_CODEX_PROFILE
 export _LOCALLLM_SOURCED=1   # sentinel: in LOCAL mode (see auto-reset block above)

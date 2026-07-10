@@ -1,13 +1,16 @@
 #!/bin/sh
 # ocr_to_md.sh — Vision-as-preprocessing: convert an image or PDF to
 # Markdown text with a small dedicated OCR model, so a text-only agentic model
-# (e.g. ornith:35b) can consume the result without ever loading a vision tower.
+# (one whose /api/show lacks the `vision` capability) can consume the result
+# without ever loading a vision tower.
 #
-# Rationale: on a single 24 GB GPU a ~22 GB text model and a vision model cannot
-# safely co-reside (see README "Vision via OCR preprocessing"). So we DECOUPLE
-# vision from the agentic driver: run OCR up front while the big text model is
-# NOT loaded, cache the result as <input>.md, then start ornith and feed it the
-# .md. No VRAM contention; ornith keeps full context at 100% GPU.
+# NOTE: currently OPTIONAL — both adopted models (qwen3.6:35b-a3b-mtp-q4_K_M and
+# satgeze/qwen36-35b-uncensored-1m) are vision-capable and read images/PDF pages
+# directly. This helper is retained for a future text-only model. The small OCR
+# model (glm-ocr, ~7 GB) co-resides fine with a loaded ~22 GB text model on a
+# 24 GB GPU, so you can OCR and infer in one sitting without a launcher swap
+# (see README "Vision via OCR preprocessing"): run OCR to cache <input>.md, then
+# feed the .md to the text model via direct connect.
 #
 # Usage:
 #   ./ocr_to_md.sh <input.pdf|image>            # -> <input>.md next to the input
