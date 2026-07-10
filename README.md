@@ -219,8 +219,11 @@ marker to fall back to the `qwen3.6:35b-a3b-mtp-q4_K_M` default.
 | `up_version.csh`                           | Reinstall Ollama to the latest release, stop/disable the systemd unit, and print the version (manual update helper)                                                                                                                                                                                    |
 | `start_ollama_qwen36_35b.sh`               | Thin launcher for`qwen3.6:35b-a3b-mtp-q4_K_M` (default; Qwen3.6-35B-A3B MoE, ~3B active, thinking + vision; override `MODEL=qwen3.6:35b` for non-MTP; **MTP build is slow at the 256K default — see measured table**)                                                                              |
 | `start_ollama_qwen36_uncensored_256k.sh`     | Thin launcher for`satgeze/qwen36-35b-uncensored-1m:q4_k_m-no-mtp` (optional; uncensored **non-MTP** derivative of the default that **keeps vision** — handles image/PDF input; 1M-native window served at 256K; ~93 tok/s @256K / ~110 @128K, Codex profile `ollama-qwen36-uncensored-256k`)         |
+| `start_ollama_qwen36_iq3m_256k.sh`           | Thin launcher for`qwen36-iq3m-256k-fix` (local derived model over `chuangyeyu/Qwen3.6-35B-A3B-IQ3_M:latest` with `renderer/parser=qwen3.5` configured — see `qwen36-iq3m-256k-fix.modelfile`; optional; IQ3_M quant of the default, ~3B active, **keeps vision**; native 256K. **Only 35B-A3B build that fits 256K 100% GPU on 24GB** — measured 19GB / 100% GPU / ~101 tok/s @256K; Codex profile `ollama-qwen36-iq3m-256k`; tradeoff is IQ3_M quality vs the Q4 builds)         |
+| `build_qwen36_iq3m_fix.sh`                 | Builds the `qwen36-iq3m-256k-fix` derived model (`ollama create`) and runs a strict `/v1/messages` tools+system smoke test that must return `tool_use`. Run once after pulling the upstream tag                                                                              |
+| `qwen36-iq3m-256k-fix.modelfile`           | Self-contained Modelfile for `qwen36-iq3m-256k-fix` (`FROM chuangyeyu/Qwen3.6-35B-A3B-IQ3_M:latest` + `RENDERER qwen3.5` / `PARSER qwen3.5` — the actual fix, no manifest editing)                                                                              |
 | `_ollama_serve_common.sh`                  | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in`~/.ollama_active_model`. Default `OLLAMA_CONTEXT_LENGTH=262144` (256K)                                                                                                              |
-| `ocr_to_md.sh`                             | Vision-as-preprocessing helper: OCR an image/PDF to Markdown with a small dedicated model (`glm-ocr`) so a **text-only** agentic model can consume it — see [Vision via OCR preprocessing](#vision-via-ocr-preprocessing). **Currently optional:** both adopted models are vision-capable, so this is only needed if a text-only model is re-added |
+| `ocr_to_md.sh`                             | Vision-as-preprocessing helper: OCR an image/PDF to Markdown with a small dedicated model (`glm-ocr`) so a **text-only** agentic model can consume it — see [Vision via OCR preprocessing](#vision-via-ocr-preprocessing). **Currently optional:** all adopted models are vision-capable, so this is only needed if a text-only model is re-added |
 | `source_local.sh` / `.csh`               | LOCAL mode: export Claude Code`ANTHROPIC_*` + alias `claude`/`codex` to local                                                                                                                                                                                                                    |
 | `source_cloud.sh` / `.csh`               | CLOUD mode: unset those env vars and`unalias claude`/`codex`                                                                                                                                                                                                                                       |
 
@@ -257,7 +260,8 @@ ollama run qwen3.6:35b-a3b-mtp-q4_K_M      # optional REPL smoke test
 
 ```bash
 ./start_ollama_qwen36_35b.sh         # qwen3.6:35b-a3b-mtp-q4_K_M (default; override MODEL=qwen3.6:35b for non-MTP)
-./start_ollama_qwen36_uncensored_256k.sh  # satgeze/qwen36-35b-uncensored-1m:q4_k_m-no-mtp (optional; uncensored + vision, non-MTP, fastest at 256K)
+./start_ollama_qwen36_uncensored_256k.sh  # satgeze/qwen36-35b-uncensored-1m:q4_k_m-no-mtp (optional; uncensored + vision, non-MTP, Q4, fastest Q4 at 256K)
+./start_ollama_qwen36_iq3m_256k.sh        # qwen36-iq3m-256k-fix (local derived model; optional; uncensored + vision, IQ3_M; only build that runs 256K 100% GPU on 24GB — build once, see below)
 ```
 
 Each launcher is a thin wrapper: it sets the `MODEL` tag and sources the shared
@@ -369,7 +373,8 @@ runs **6%/94% CPU/GPU, 25 GB, ~93 tok/s**, and at **128K** it fits **100% GPU,
 23 GB, ~110 tok/s**. A `/api/chat` tool-call smoke test returned a **structured
 `tool_calls` block with empty `content`** (`think:false`, no thinking leak).
 Because it is **non-MTP** it stays clearly faster than the default MTP build at
-every context and is the **recommended full-window (256K) model**. Caveats: it is
+every context and is the **recommended full-window (256K) model at Q4 quality**
+(for 256K *fully resident* on the GPU use the IQ3_M build below instead). Caveats: it is
 a **non-official derivative** (weaker provenance/reproducibility than the
 Apache-2.0 default), and uncensored sampling defaults tend to be aggressive.
 Re-verify after any re-pull that capabilities still include `vision` (if the tag
@@ -385,6 +390,59 @@ curl -s http://127.0.0.1:11434/api/show \
 
 Launch with `./start_ollama_qwen36_uncensored_256k.sh` (Codex profile
 `ollama-qwen36-uncensored-256k`, overlay `~/.codex/ollama-qwen36-uncensored-256k.config.toml`).
+
+**Qwen3.6-35B-A3B IQ3_M (`qwen36-iq3m-256k-fix`, a local derived model over
+`chuangyeyu/Qwen3.6-35B-A3B-IQ3_M:latest`, measured — adopted).** The **optional
+256K-fully-resident launcher** (the Apache-2.0 build remains the default). An
+IQ3_M community quant of the default (same `qwen35moe` architecture, 34.7B total /
+~3B active, HauhauCS-lineage uncensored) that **keeps the vision tower** (clip
+projector ~446M bundled in the tag, so image/PDF works with no separate mmproj
+file). Native **256K** (context length 262144). IQ3_M weights ≈ 16 GB.
+**Measured on this host (RTX 3090 24GB)** with the shared wrapper settings
+(`OLLAMA_KV_CACHE_TYPE=q8_0` + flash attention): `/api/show` capabilities
+`['tools','thinking','completion','vision']` (**vision present**); at **256K** it
+runs **100% GPU, 19 GB, ~101 tok/s** — the **only 35B-A3B build here that keeps
+the full 256K window entirely on the GPU** (both Q4 builds spill to CPU at 256K),
+because its ~16 GB weights leave room for the full q8_0 KV cache in 24 GB. A
+`/api/chat` tool-call smoke test with a leading **system** message returned a
+**structured `tool_calls` block with empty `content`** (`think:false`, no
+thinking leak), so it can drive direct connect. The tradeoff vs the Q4 builds is
+**IQ3_M quantization quality** (heavier long-document / multi-step reasoning is
+where a 3-bit quant shows most); prefer a Q4 build when quality matters more than
+full-window residency. Caveats: **non-official derivative** (weaker provenance
+than the Apache-2.0 default) and uncensored sampling.
+
+> **Why a derived model, not the raw tag.** The upstream
+> `chuangyeyu/Qwen3.6-35B-A3B-IQ3_M:latest` ships **no `renderer`/`parser` in its
+> Ollama manifest config**, so Ollama auto-generates a tool-call parser from the
+> GGUF-embedded Jinja chat template and fails —
+> `400 "Unable to generate parser for this template … System message must be at
+> the beginning."` — on every request carrying tools + a system message (i.e.
+> every Claude Code / Codex request), making the raw tag unusable for
+> direct-connect. The embedded Jinja template is **byte-identical to the official
+> qwen3.6 build's**; the official works only because its config carries
+> `renderer=qwen3.5` / `parser=qwen3.5`, so Ollama uses its **built-in** qwen3.5
+> renderer + tool parser and never touches the Jinja template. A Modelfile
+> `TEMPLATE` override does **not** help (parser generation reads the GGUF
+> template, not the Modelfile one; Ollama 0.31.x treats `TEMPLATE` as a Go
+> template). A `TEMPLATE` override **alone** does not fix parser generation. The fix sets the same built-in renderer/parser via the **native
+> Modelfile directives** `RENDERER qwen3.5` / `PARSER qwen3.5` / `REQUIRES 0.30.0`
+> (`qwen36-iq3m-256k-fix.modelfile`) — no manifest editing needed. Verified on
+> the `/v1/messages` path with tools + system → `tool_use` instead of 400. Build
+> it once:
+
+```sh
+ollama pull chuangyeyu/Qwen3.6-35B-A3B-IQ3_M:latest   # operator step
+./build_qwen36_iq3m_fix.sh                            # ollama create + strict tools+system smoke test
+# the build script already smoke-tests /v1/messages; to re-check capabilities:
+curl -s http://127.0.0.1:11434/api/show \
+  -d '{"model":"qwen36-iq3m-256k-fix:latest"}' \
+  | python3 -c 'import sys,json;print("capabilities:",json.load(sys.stdin).get("capabilities"))'
+# expect: capabilities: ['tools', 'thinking', 'completion', 'vision']
+```
+
+Launch with `./start_ollama_qwen36_iq3m_256k.sh` (Codex profile
+`ollama-qwen36-iq3m-256k`, overlay `~/.codex/ollama-qwen36-iq3m-256k.config.toml`).
 
 **Sizing a new model (rough estimate).** Before pulling, estimate weight memory as:
 
@@ -403,7 +461,7 @@ the only hard rule; usable context above it depends on weight size and offload:
 | GPU VRAM | Practical context        | Notes                                                                                                                                                                              |
 | -------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | < 24 GB  | 4K (auto), raise w/ care | Ollama auto-limits to 4K; larger needs explicit override + RAM spill                                                                                                               |
-| 24 GB    | up to 256K (w/ CPU spill) | **Measured** on RTX 3090 — per-model detail in the table below (q8_0 KV cache; at the 256K default all 22 GB builds spill some KV to CPU; drop to 128K for 100% GPU on non-MTP builds) |
+| 24 GB    | up to 256K (100% GPU on IQ3_M) | **Measured** on RTX 3090 — per-model detail in the table below (q8_0 KV cache; the ~16 GB IQ3_M build runs 256K 100% GPU, the ~22 GB Q4 builds spill some KV to CPU at 256K — drop to 128K for 100% GPU on the non-MTP Q4 build) |
 | 48 GB+   | 256K+ (estimate)         | Report-derived,**not measured** here; confirm with `ollama ps`                                                                                                             |
 
 > The 24 GB row is measured on this host; other rows are estimates to be confirmed
@@ -412,8 +470,9 @@ the only hard rule; usable context above it depends on weight size and offload:
 **Per-model measured values (RTX 3090, 24 GB).** `OLLAMA_KV_CACHE_TYPE=q8_0`; SIZE /
 processor split from `ollama ps`, throughput from `/api/generate`
 (`eval_count` ÷ `eval_duration`, 300-token generation, `think:false`), **lightly
-loaded** (KV cache mostly empty — see caveat below). Both models are shown at the
-**256K** wrapper default and at **128K** for comparison:
+loaded** (KV cache mostly empty — see caveat below). The two Q4 builds are shown
+at the **256K** wrapper default and at **128K** for comparison; the IQ3_M build is
+shown at its adopted **256K** setting (it already fits 100% GPU there):
 
 | Model                                            | Context | Processor          | VRAM (SIZE) | Throughput |
 | ------------------------------------------------ | ------- | ------------------ | ----------- | ---------- |
@@ -421,12 +480,18 @@ loaded** (KV cache mostly empty — see caveat below). Both models are shown at 
 | `qwen3.6:35b-a3b-mtp-q4_K_M` (default, MTP)    | 128000  | 4%/96% CPU/GPU     | 22 GB       | ~73 tok/s  |
 | `satgeze/qwen36-35b-uncensored-1m` (non-MTP)   | 262144  | 6%/94% CPU/GPU     | 25 GB       | **~93 tok/s** |
 | `satgeze/qwen36-35b-uncensored-1m` (non-MTP)   | 128000  | 100% GPU           | 23 GB       | ~110 tok/s |
+| `qwen36-iq3m-256k-fix` (IQ3_M, over chuangyeyu) | 262144  | **100% GPU**       | 19 GB       | **~101 tok/s** |
 
-> **Takeaway:** at the 256K default the **non-MTP** uncensored-1m build is ~2×
-> faster than the default MTP build (93 vs 49 tok/s) and spills less to CPU. The
-> MTP draft head, which normally speeds generation, becomes a liability once the
-> model overflows VRAM at 256K. For full-window (256K) work prefer the non-MTP
-> build; for the default MTP model prefer 128K (`OLLAMA_CONTEXT_LENGTH=128000`).
+> **Takeaway:** the **IQ3_M** build is the only 35B-A3B here that runs 256K
+> **100% GPU** on 24 GB (19 GB, ~101 tok/s) — no CPU spill, and faster than either
+> Q4 build at 256K — because its ~16 GB weights leave room for the full q8_0 KV
+> cache. Its cost is IQ3_M quantization quality vs the Q4 builds. Among the Q4
+> builds at 256K the **non-MTP** uncensored-1m is ~2× faster than the default MTP
+> build (93 vs 49 tok/s) and spills less to CPU — the MTP draft head, which
+> normally speeds generation, becomes a liability once the model overflows VRAM at
+> 256K. So: for **256K fully resident** use IQ3_M; for **Q4 quality at full
+> window** use the non-MTP uncensored build (accept ~6% CPU spill); for the
+> default MTP model prefer 128K (`OLLAMA_CONTEXT_LENGTH=128000`).
 
 > The reported SIZE reflects a near-empty KV cache because Ollama allocates KV
 > lazily — at warm-up little of the 256K is in use, so a task that fills toward the
@@ -504,6 +569,7 @@ explicit `setenv`/`export LOCALLLM_MODEL` before sourcing always wins.
 
 `LOCALLLM_CODEX_PROFILE`, when unset, is **derived from `LOCALLLM_MODEL`** via a
 `switch` in `source_local.csh`:
+`qwen36-iq3m-256k-fix:*` ⇒ `ollama-qwen36-iq3m-256k`,
 `satgeze/qwen36-35b-uncensored-1m:*` ⇒ `ollama-qwen36-uncensored-256k`,
 `qwen3.6:*` ⇒ `ollama-qwen36-35b`, everything else ⇒
 `ollama-local`. (Each model gets its own explicit case, so an unlisted variant
@@ -571,6 +637,7 @@ Notion MCP setting. You can still invoke either explicitly
 (`codex --profile ollama-local -c mcp_servers.notion.enabled=false` / `codex`)
 regardless of which file is sourced. By default `LOCALLLM_CODEX_PROFILE` is
 **auto-derived from the detected `LOCALLLM_MODEL`** (see the auto-detection note above):
+`qwen36-iq3m-256k-fix:*` ⇒ `ollama-qwen36-iq3m-256k`,
 `satgeze/qwen36-35b-uncensored-1m:*` ⇒ `ollama-qwen36-uncensored-256k`,
 `qwen3.6:*` ⇒ `ollama-qwen36-35b`, otherwise ⇒ `ollama-local` (one
 explicit case per model). To force a specific profile, set
@@ -627,12 +694,18 @@ run into Ollama's server-side limit. Keep `model_context_window` equal to
 headroom for the next prompt, tool results, and model output. The 256K profiles
 use **240K** as the first-pass trigger for a **256K** Ollama daemon.
 
-Another overlay reuses the same provider for the uncensored + 1M/vision variant
+Further overlays reuse the same provider for the other adopted variants
 (only the `model` line differs):
 
 ```toml
-# ~/.codex/ollama-qwen36-uncensored-256k.config.toml  (uncensored + vision, non-MTP)
+# ~/.codex/ollama-qwen36-uncensored-256k.config.toml  (uncensored + vision, non-MTP, Q4)
 model = "satgeze/qwen36-35b-uncensored-1m:q4_k_m-no-mtp"
+model_provider = "ollama-local"
+model_context_window = 262144
+model_auto_compact_token_limit = 240000
+
+# ~/.codex/ollama-qwen36-iq3m-256k.config.toml  (uncensored + vision, IQ3_M, 256K 100% GPU)
+model = "qwen36-iq3m-256k-fix:latest"
 model_provider = "ollama-local"
 model_context_window = 262144
 model_auto_compact_token_limit = 240000
@@ -641,7 +714,8 @@ model_auto_compact_token_limit = 240000
 ```bash
 codex --profile ollama-local                 # fallback profile → default qwen3.6:35b-a3b-mtp-q4_K_M
 codex --profile ollama-qwen36-35b            # local qwen3.6:35b-a3b (loads ollama-qwen36-35b.config.toml)
-codex --profile ollama-qwen36-uncensored-256k  # local Uncensored + vision, non-MTP (loads ollama-qwen36-uncensored-256k.config.toml)
+codex --profile ollama-qwen36-uncensored-256k  # local Uncensored + vision, non-MTP Q4 (loads ollama-qwen36-uncensored-256k.config.toml)
+codex --profile ollama-qwen36-iq3m-256k      # local Uncensored + vision, IQ3_M, 256K 100% GPU (loads ollama-qwen36-iq3m-256k.config.toml)
 codex                                        # cloud (default profile)
 ```
 
@@ -649,9 +723,10 @@ codex                                        # cloud (default profile)
 
 ## Vision via OCR preprocessing
 
-> **Currently optional — both adopted models are vision-capable.** The two models
-> in the tree today (`qwen3.6:35b-a3b-mtp-q4_K_M` and
-> `satgeze/qwen36-35b-uncensored-1m`) both report `vision`, so they read images /
+> **Currently optional — all adopted models are vision-capable.** The three models
+> in the tree today (`qwen3.6:35b-a3b-mtp-q4_K_M`,
+> `satgeze/qwen36-35b-uncensored-1m`, and `qwen36-iq3m-256k-fix`) all
+> report `vision`, so they read images /
 > PDF pages directly and this OCR-preprocessing hop is **not required**. This
 > section is retained for reference and for the case where a **text-only** model
 > (e.g. a future Ornith-style agentic-coding build) is re-added.
