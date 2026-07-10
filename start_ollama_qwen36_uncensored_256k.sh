@@ -1,12 +1,13 @@
 #!/bin/sh
-# Start the Ollama daemon for the Qwen3.6-35B-A3B *Uncensored + 1M-context*
-# variant (satgeze/qwen36-35b-uncensored-1m:q4_k_m-no-mtp, an uncensored derivative of
+# Start the Ollama daemon for the Qwen3.6-35B-A3B *Uncensored* variant served at
+# the shared core's 256K (262144) default
+# (satgeze/qwen36-35b-uncensored-1m:q4_k_m-no-mtp, an uncensored derivative of
 # qwen3.6:35b-a3b advertising a 1M native context window). Sparse MoE ~3B active,
-# thinking-capable, vision-capable. Served at the shared core's 256K (262144)
-# default. Measured on a 24GB RTX 3090: 100% GPU / 23GB / ~110 tok/s at 128K;
-# at 256K it spills ~6% to CPU (25GB) / ~93 tok/s. The "1m" tag name is the
-# model's native limit, not what we load. (The tag's Modelfile also pins
-# `num_ctx 262144`, so it would serve 256K even without the core default.)
+# thinking-capable, vision-capable. Measured on a 24GB RTX 3090: 100% GPU / 23GB /
+# ~110 tok/s at 128K; at 256K it spills ~6% to CPU (25GB) / ~93 tok/s. The "1m" in
+# the upstream tag name is the model's native limit, not what we load. (The tag's
+# Modelfile also pins `num_ctx 262144`, so it serves 256K even without the core
+# default.)
 #
 # ADOPTED (optional launcher). Capabilities and a structured tool-call were
 # verified here (['completion','vision','tools','thinking']); it is the

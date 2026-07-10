@@ -74,7 +74,7 @@ endif
 if (! $?LOCALLLM_CODEX_PROFILE) then
     switch ("$LOCALLLM_MODEL")
         case satgeze/qwen36-35b-uncensored-1m:*:
-            setenv LOCALLLM_CODEX_PROFILE "ollama-qwen36-uncensored-1m"
+            setenv LOCALLLM_CODEX_PROFILE "ollama-qwen36-uncensored-256k"
             breaksw
         case qwen3.6:*:
             setenv LOCALLLM_CODEX_PROFILE "ollama-qwen36-35b"

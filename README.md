@@ -218,7 +218,7 @@ marker to fall back to the `qwen3.6:35b-a3b-mtp-q4_K_M` default.
 | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `up_version.csh`                           | Reinstall Ollama to the latest release, stop/disable the systemd unit, and print the version (manual update helper)                                                                                                                                                                                    |
 | `start_ollama_qwen36_35b.sh`               | Thin launcher for`qwen3.6:35b-a3b-mtp-q4_K_M` (default; Qwen3.6-35B-A3B MoE, ~3B active, thinking + vision; override `MODEL=qwen3.6:35b` for non-MTP; **MTP build is slow at the 256K default — see measured table**)                                                                              |
-| `start_ollama_qwen36_uncensored_1m.sh`     | Thin launcher for`satgeze/qwen36-35b-uncensored-1m:q4_k_m-no-mtp` (optional; uncensored **non-MTP** derivative of the default that **keeps vision** — handles image/PDF input; 1M-native window served at 256K; ~93 tok/s @256K / ~110 @128K, Codex profile `ollama-qwen36-uncensored-1m`)         |
+| `start_ollama_qwen36_uncensored_256k.sh`     | Thin launcher for`satgeze/qwen36-35b-uncensored-1m:q4_k_m-no-mtp` (optional; uncensored **non-MTP** derivative of the default that **keeps vision** — handles image/PDF input; 1M-native window served at 256K; ~93 tok/s @256K / ~110 @128K, Codex profile `ollama-qwen36-uncensored-256k`)         |
 | `_ollama_serve_common.sh`                  | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in`~/.ollama_active_model`. Default `OLLAMA_CONTEXT_LENGTH=262144` (256K)                                                                                                              |
 | `ocr_to_md.sh`                             | Vision-as-preprocessing helper: OCR an image/PDF to Markdown with a small dedicated model (`glm-ocr`) so a **text-only** agentic model can consume it — see [Vision via OCR preprocessing](#vision-via-ocr-preprocessing). **Currently optional:** both adopted models are vision-capable, so this is only needed if a text-only model is re-added |
 | `source_local.sh` / `.csh`               | LOCAL mode: export Claude Code`ANTHROPIC_*` + alias `claude`/`codex` to local                                                                                                                                                                                                                    |
@@ -257,7 +257,7 @@ ollama run qwen3.6:35b-a3b-mtp-q4_K_M      # optional REPL smoke test
 
 ```bash
 ./start_ollama_qwen36_35b.sh         # qwen3.6:35b-a3b-mtp-q4_K_M (default; override MODEL=qwen3.6:35b for non-MTP)
-./start_ollama_qwen36_uncensored_1m.sh  # satgeze/qwen36-35b-uncensored-1m:q4_k_m-no-mtp (optional; uncensored + vision, non-MTP, fastest at 256K)
+./start_ollama_qwen36_uncensored_256k.sh  # satgeze/qwen36-35b-uncensored-1m:q4_k_m-no-mtp (optional; uncensored + vision, non-MTP, fastest at 256K)
 ```
 
 Each launcher is a thin wrapper: it sets the `MODEL` tag and sources the shared
@@ -362,8 +362,8 @@ content-refusal/judgement layer **but keeps the vision tower** (clip projector
 ~447M bundled in the tag), so it can load images and PDF pages. It is a **non-MTP,
 Q4_K_M** build advertising a **1M native window** (Modelfile pins `num_ctx
 262144`), which we serve at **256K**. `Q4_K_M` ≈ 22 GB weights. **Measured on this
-host (RTX 3090 24GB)** with the shared wrapper settings (`OLLAMA_KV_CACHE_TYPE=q8_0`
-+ flash attention): `/api/show` capabilities
+host (RTX 3090 24GB)** with the shared wrapper settings
+(`OLLAMA_KV_CACHE_TYPE=q8_0` + flash attention): `/api/show` capabilities
 `['completion','vision','tools','thinking']` (**vision present**); at **256K** it
 runs **6%/94% CPU/GPU, 25 GB, ~93 tok/s**, and at **128K** it fits **100% GPU,
 23 GB, ~110 tok/s**. A `/api/chat` tool-call smoke test returned a **structured
@@ -383,8 +383,8 @@ curl -s http://127.0.0.1:11434/api/show \
 # expect: capabilities: ['completion', 'vision', 'tools', 'thinking']
 ```
 
-Launch with `./start_ollama_qwen36_uncensored_1m.sh` (Codex profile
-`ollama-qwen36-uncensored-1m`, overlay `~/.codex/ollama-qwen36-uncensored-1m.config.toml`).
+Launch with `./start_ollama_qwen36_uncensored_256k.sh` (Codex profile
+`ollama-qwen36-uncensored-256k`, overlay `~/.codex/ollama-qwen36-uncensored-256k.config.toml`).
 
 **Sizing a new model (rough estimate).** Before pulling, estimate weight memory as:
 
@@ -504,7 +504,7 @@ explicit `setenv`/`export LOCALLLM_MODEL` before sourcing always wins.
 
 `LOCALLLM_CODEX_PROFILE`, when unset, is **derived from `LOCALLLM_MODEL`** via a
 `switch` in `source_local.csh`:
-`satgeze/qwen36-35b-uncensored-1m:*` ⇒ `ollama-qwen36-uncensored-1m`,
+`satgeze/qwen36-35b-uncensored-1m:*` ⇒ `ollama-qwen36-uncensored-256k`,
 `qwen3.6:*` ⇒ `ollama-qwen36-35b`, everything else ⇒
 `ollama-local`. (Each model gets its own explicit case, so an unlisted variant
 defaults to `ollama-local`.) Add one
@@ -571,7 +571,7 @@ Notion MCP setting. You can still invoke either explicitly
 (`codex --profile ollama-local -c mcp_servers.notion.enabled=false` / `codex`)
 regardless of which file is sourced. By default `LOCALLLM_CODEX_PROFILE` is
 **auto-derived from the detected `LOCALLLM_MODEL`** (see the auto-detection note above):
-`satgeze/qwen36-35b-uncensored-1m:*` ⇒ `ollama-qwen36-uncensored-1m`,
+`satgeze/qwen36-35b-uncensored-1m:*` ⇒ `ollama-qwen36-uncensored-256k`,
 `qwen3.6:*` ⇒ `ollama-qwen36-35b`, otherwise ⇒ `ollama-local` (one
 explicit case per model). To force a specific profile, set
 `LOCALLLM_CODEX_PROFILE` before sourcing — Codex picks the model per profile
@@ -631,7 +631,7 @@ Another overlay reuses the same provider for the uncensored + 1M/vision variant
 (only the `model` line differs):
 
 ```toml
-# ~/.codex/ollama-qwen36-uncensored-1m.config.toml  (uncensored + vision, non-MTP)
+# ~/.codex/ollama-qwen36-uncensored-256k.config.toml  (uncensored + vision, non-MTP)
 model = "satgeze/qwen36-35b-uncensored-1m:q4_k_m-no-mtp"
 model_provider = "ollama-local"
 model_context_window = 262144
@@ -641,7 +641,7 @@ model_auto_compact_token_limit = 240000
 ```bash
 codex --profile ollama-local                 # fallback profile → default qwen3.6:35b-a3b-mtp-q4_K_M
 codex --profile ollama-qwen36-35b            # local qwen3.6:35b-a3b (loads ollama-qwen36-35b.config.toml)
-codex --profile ollama-qwen36-uncensored-1m  # local Uncensored + vision, non-MTP (loads ollama-qwen36-uncensored-1m.config.toml)
+codex --profile ollama-qwen36-uncensored-256k  # local Uncensored + vision, non-MTP (loads ollama-qwen36-uncensored-256k.config.toml)
 codex                                        # cloud (default profile)
 ```
 

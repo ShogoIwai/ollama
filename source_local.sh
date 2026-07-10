@@ -65,7 +65,7 @@ fi
 # model unless explicitly set. Add a case + overlay file per new local model.
 if [ -z "${LOCALLLM_CODEX_PROFILE:-}" ]; then
     case "${LOCALLLM_MODEL}" in
-        satgeze/qwen36-35b-uncensored-1m:*) LOCALLLM_CODEX_PROFILE="ollama-qwen36-uncensored-1m" ;;
+        satgeze/qwen36-35b-uncensored-1m:*) LOCALLLM_CODEX_PROFILE="ollama-qwen36-uncensored-256k" ;;
         qwen3.6:*)            LOCALLLM_CODEX_PROFILE="ollama-qwen36-35b" ;;
         *)                    LOCALLLM_CODEX_PROFILE="ollama-local" ;;
     esac
