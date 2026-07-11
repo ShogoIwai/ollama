@@ -220,6 +220,8 @@ marker to fall back to the `qwen3.6:35b-a3b-mtp-q4_K_M` default.
 | `start_ollama_qwen36_35b.sh`               | Thin launcher for`qwen3.6:35b-a3b-mtp-q4_K_M` (default; Qwen3.6-35B-A3B MoE, ~3B active, thinking + vision; override `MODEL=qwen3.6:35b` for non-MTP; **MTP build is slow at the 256K default — see measured table**)                                                                              |
 | `start_ollama_qwen36_uncensored_256k.sh`     | Thin launcher for`satgeze/qwen36-35b-uncensored-1m:q4_k_m-no-mtp` (optional; uncensored **non-MTP** derivative of the default that **keeps vision** — handles image/PDF input; 1M-native window served at 256K; ~93 tok/s @256K / ~110 @128K, Codex profile `ollama-qwen36-uncensored-256k`)         |
 | `start_ollama_qwen36_iq3m_256k.sh`           | Thin launcher for`qwen36-iq3m-256k-fix` (local derived model over `chuangyeyu/Qwen3.6-35B-A3B-IQ3_M:latest` with `renderer/parser=qwen3.5` configured — see `qwen36-iq3m-256k-fix.modelfile`; optional; IQ3_M quant of the default, ~3B active, **keeps vision**; native 256K. **Only 35B-A3B build that fits 256K 100% GPU on 24GB** — measured 19GB / 100% GPU / ~101 tok/s @256K; Codex profile `ollama-qwen36-iq3m-256k`; tradeoff is IQ3_M quality vs the Q4 builds)         |
+| `start_ollama_qwen36_27b_coder.sh`           | Thin launcher for`qwen36-27b-coder-256k` (local derived model over `SetneufPT/Qwen3.6-27B-CODER-MTP_Q4_105k_24GB-GPU` with `num_ctx` raised to 262144 — see `qwen36-27b-coder-256k.modelfile`; optional; **dense 27.3B** coder variant, Q4_K_M, MTP, keeps vision + thinking + tools; **pins `OLLAMA_KV_CACHE_TYPE=q4_0`** to fit the full 256K in 24GB — q8_0 OOMs at 256K; measured 262144 / **100% GPU** / 18GB / ~68 tok/s; Codex profile `ollama-qwen36-27b-coder`)         |
+| `qwen36-27b-coder-256k.modelfile`          | Self-contained Modelfile for `qwen36-27b-coder-256k` (`FROM SetneufPT/Qwen3.6-27B-CODER-MTP_Q4_105k_24GB-GPU:latest` + `PARAMETER num_ctx 262144` — lifts the upstream's baked-in 105k cap to the native 256K; build with `ollama create`)                                                                              |
 | `build_qwen36_iq3m_fix.sh`                 | Builds the `qwen36-iq3m-256k-fix` derived model (`ollama create`) and runs a strict `/v1/messages` tools+system smoke test that must return `tool_use`. Run once after pulling the upstream tag                                                                              |
 | `qwen36-iq3m-256k-fix.modelfile`           | Self-contained Modelfile for `qwen36-iq3m-256k-fix` (`FROM chuangyeyu/Qwen3.6-35B-A3B-IQ3_M:latest` + `RENDERER qwen3.5` / `PARSER qwen3.5` — the actual fix, no manifest editing)                                                                              |
 | `_ollama_serve_common.sh`                  | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in`~/.ollama_active_model`. Default `OLLAMA_CONTEXT_LENGTH=262144` (256K)                                                                                                              |
@@ -262,6 +264,7 @@ ollama run qwen3.6:35b-a3b-mtp-q4_K_M      # optional REPL smoke test
 ./start_ollama_qwen36_35b.sh         # qwen3.6:35b-a3b-mtp-q4_K_M (default; override MODEL=qwen3.6:35b for non-MTP)
 ./start_ollama_qwen36_uncensored_256k.sh  # satgeze/qwen36-35b-uncensored-1m:q4_k_m-no-mtp (optional; uncensored + vision, non-MTP, Q4, fastest Q4 at 256K)
 ./start_ollama_qwen36_iq3m_256k.sh        # qwen36-iq3m-256k-fix (local derived model; optional; uncensored + vision, IQ3_M; only build that runs 256K 100% GPU on 24GB — build once, see below)
+./start_ollama_qwen36_27b_coder.sh        # qwen36-27b-coder-256k (local derived model; optional; dense 27B coder + vision, Q4; full 256K via q4_0 KV, 100% GPU / 18GB / ~68 tok/s — build once, see below)
 ```
 
 Each launcher is a thin wrapper: it sets the `MODEL` tag and sources the shared
@@ -444,6 +447,42 @@ curl -s http://127.0.0.1:11434/api/show \
 Launch with `./start_ollama_qwen36_iq3m_256k.sh` (Codex profile
 `ollama-qwen36-iq3m-256k`, overlay `~/.codex/ollama-qwen36-iq3m-256k.config.toml`).
 
+**Qwen3.6-27B Coder at 256K (`qwen36-27b-coder-256k`, a local derived model over
+`SetneufPT/Qwen3.6-27B-CODER-MTP_Q4_105k_24GB-GPU`, measured — adopted).** A
+**dense 27.3B** coder variant (family qwen35, Q4_K_M, MTP), distinct from the
+35B-A3B MoE builds above — dense weights, not ~3B active; native window 256K
+(262144). Two upstream quirks had to be worked around to serve the full 256K:
+
+1. **The upstream tag pins `PARAMETER num_ctx 105000` in its Modelfile**, and a
+   Modelfile parameter overrides the `OLLAMA_CONTEXT_LENGTH` env — so the daemon
+   env alone cannot lift the window past the author's conservative "105k" label.
+   The fix is a local derived model (`qwen36-27b-coder-256k.modelfile`,
+   `FROM` the tag + `PARAMETER num_ctx 262144`) that reuses the same weight blobs
+   / mmproj / MTP head and only raises num_ctx.
+2. **At 256K the default q8_0 KV cache OOMs** on 24GB (needs a ~9GB reserve atop
+   ~17GB weights). The launcher drops the KV cache to **q4_0**
+   (`OLLAMA_KV_CACHE_TYPE=q4_0`), which ~halves that reserve and fits.
+
+With both, measured on the RTX 3090: **256K / 100% GPU / 18 GB / ~68 tok/s**,
+capabilities `['completion','vision','tools','thinking']`, and a `/api/chat`
+tool-call smoke test (leading system message) returned a **structured
+`tool_calls`** block — so it drives Claude Code / Codex direct-connect. Tradeoff
+vs the 35B-A3B builds: ~68 tok/s (dense compute) and a q4_0 (vs q8_0) KV cache,
+in exchange for a coder-tuned dense model at the full 256K window. For q8_0 KV
+precision instead, run the raw upstream tag at its 105k window
+(`MODEL=SetneufPT/Qwen3.6-27B-CODER-MTP_Q4_105k_24GB-GPU:latest OLLAMA_KV_CACHE_TYPE=q8_0 ./start_ollama_qwen36_27b_coder.sh`).
+
+```bash
+ollama pull SetneufPT/Qwen3.6-27B-CODER-MTP_Q4_105k_24GB-GPU:latest   # operator step
+ollama create qwen36-27b-coder-256k -f qwen36-27b-coder-256k.modelfile  # build derived model (reuses blobs)
+curl -s http://127.0.0.1:11434/api/show \
+  -d '{"model":"qwen36-27b-coder-256k:latest"}' \
+  | python3 -c 'import sys,json;print(json.load(sys.stdin).get("capabilities"))'
+```
+
+Launch with `./start_ollama_qwen36_27b_coder.sh` (Codex profile
+`ollama-qwen36-27b-coder`, overlay `~/.codex/ollama-qwen36-27b-coder.config.toml`).
+
 **Sizing a new model (rough estimate).** Before pulling, estimate weight memory as:
 
 ```
@@ -467,7 +506,9 @@ the only hard rule; usable context above it depends on weight size and offload:
 > The 24 GB row is measured on this host; other rows are estimates to be confirmed
 > per environment via the `ollama ps` `CONTEXT` column and CPU/GPU split.
 
-**Per-model measured values (RTX 3090, 24 GB).** `OLLAMA_KV_CACHE_TYPE=q8_0`; SIZE /
+**Per-model measured values (RTX 3090, 24 GB).** `OLLAMA_KV_CACHE_TYPE=q8_0` for
+all rows **except** the `qwen36-27b-coder-256k` row, which uses `q4_0` (required
+to fit its dense 27B at 256K in 24GB — see that row's label); SIZE /
 processor split from `ollama ps`, throughput from `/api/generate`
 (`eval_count` ÷ `eval_duration`, 300-token generation, `think:false`), **lightly
 loaded** (KV cache mostly empty — see caveat below). The two Q4 builds are shown
@@ -481,6 +522,7 @@ shown at its adopted **256K** setting (it already fits 100% GPU there):
 | `satgeze/qwen36-35b-uncensored-1m` (non-MTP)   | 262144  | 6%/94% CPU/GPU     | 25 GB       | **~93 tok/s** |
 | `satgeze/qwen36-35b-uncensored-1m` (non-MTP)   | 128000  | 100% GPU           | 23 GB       | ~110 tok/s |
 | `qwen36-iq3m-256k-fix` (IQ3_M, over chuangyeyu) | 262144  | **100% GPU**       | 19 GB       | **~101 tok/s** |
+| `qwen36-27b-coder-256k` (dense 27B, Q4, **q4_0 KV**) | 262144  | **100% GPU**       | 18 GB       | ~68 tok/s  |
 
 > **Takeaway:** the **IQ3_M** build is the only 35B-A3B here that runs 256K
 > **100% GPU** on 24 GB (19 GB, ~101 tok/s) — no CPU spill, and faster than either
@@ -692,7 +734,8 @@ model_auto_compact_token_limit = 240000
 run into Ollama's server-side limit. Keep `model_context_window` equal to
 `OLLAMA_CONTEXT_LENGTH`; keep the compact limit lower than that so there is
 headroom for the next prompt, tool results, and model output. The 256K profiles
-use **240K** as the first-pass trigger for a **256K** Ollama daemon.
+use **240K** as the first-pass trigger for a **256K** Ollama daemon (the 27B
+coder reaches 256K via a q4_0 KV cache, so it uses the same 240K trigger).
 
 Further overlays reuse the same provider for the other adopted variants
 (only the `model` line differs):
@@ -709,6 +752,14 @@ model = "qwen36-iq3m-256k-fix:latest"
 model_provider = "ollama-local"
 model_context_window = 262144
 model_auto_compact_token_limit = 240000
+
+# ~/.codex/ollama-qwen36-27b-coder.config.toml  (dense 27B coder + vision, Q4, 256K 100% GPU via q4_0 KV)
+# Served model is the local derived qwen36-27b-coder-256k (num_ctx=262144), not
+# the raw upstream tag (which pins num_ctx=105000).
+model = "qwen36-27b-coder-256k:latest"
+model_provider = "ollama-local"
+model_context_window = 262144
+model_auto_compact_token_limit = 240000
 ```
 
 ```bash
@@ -716,6 +767,7 @@ codex --profile ollama-local                 # fallback profile → default qwen
 codex --profile ollama-qwen36-35b            # local qwen3.6:35b-a3b (loads ollama-qwen36-35b.config.toml)
 codex --profile ollama-qwen36-uncensored-256k  # local Uncensored + vision, non-MTP Q4 (loads ollama-qwen36-uncensored-256k.config.toml)
 codex --profile ollama-qwen36-iq3m-256k      # local Uncensored + vision, IQ3_M, 256K 100% GPU (loads ollama-qwen36-iq3m-256k.config.toml)
+codex --profile ollama-qwen36-27b-coder      # local dense 27B coder + vision, Q4, 256K 100% GPU via q4_0 KV (loads ollama-qwen36-27b-coder.config.toml)
 codex                                        # cloud (default profile)
 ```
 
