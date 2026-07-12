@@ -4,8 +4,8 @@
 # (one whose /api/show lacks the `vision` capability) can consume the result
 # without ever loading a vision tower.
 #
-# NOTE: currently OPTIONAL — both adopted models (qwen3.6:35b-a3b-mtp-q4_K_M and
-# satgeze/qwen36-35b-uncensored-1m) are vision-capable and read images/PDF pages
+# NOTE: currently OPTIONAL — the adopted model (qwen3.6:35b-a3b-mtp-q4_K_M) is
+# vision-capable and reads images/PDF pages
 # directly. This helper is retained for a future text-only model. The small OCR
 # model (glm-ocr, ~7 GB) co-resides fine with a loaded ~22 GB text model on a
 # 24 GB GPU, so you can OCR and infer in one sitting without a launcher swap

@@ -65,9 +65,6 @@ fi
 # model unless explicitly set. Add a case + overlay file per new local model.
 if [ -z "${LOCALLLM_CODEX_PROFILE:-}" ]; then
     case "${LOCALLLM_MODEL}" in
-        qwen36-iq3m-256k-fix:*) LOCALLLM_CODEX_PROFILE="ollama-qwen36-iq3m-256k" ;;
-        satgeze/qwen36-35b-uncensored-1m:*) LOCALLLM_CODEX_PROFILE="ollama-qwen36-uncensored-256k" ;;
-        qwen36-27b-coder-256k:*) LOCALLLM_CODEX_PROFILE="ollama-qwen36-27b-coder" ;;
         qwen3.6:*)            LOCALLLM_CODEX_PROFILE="ollama-qwen36-35b" ;;
         *)                    LOCALLLM_CODEX_PROFILE="ollama-local" ;;
     esac
@@ -76,8 +73,7 @@ fi
 # Align Claude Code's context gauge to the model's SERVED Ollama window so the
 # "approaching limit" warning fires at the real truncation point. All local
 # models are qwen35-family builds served at the shared core's 256K (262144)
-# default (the 27B coder reaches 256K via a q4_0 KV cache — see its launcher),
-# so 262144 matches every launcher's OLLAMA_CONTEXT_LENGTH. If you start a
+# default, so 262144 matches every launcher's OLLAMA_CONTEXT_LENGTH. If you start a
 # launcher with a smaller OLLAMA_CONTEXT_LENGTH, pre-set this to match before
 # sourcing (explicit pre-set wins).
 if [ -z "${CLAUDE_CODE_MAX_CONTEXT_TOKENS:-}" ]; then
