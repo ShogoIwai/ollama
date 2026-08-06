@@ -7,6 +7,10 @@
 # OPENAI_* var, so there is nothing OpenAI-side to unset (Codex stays clean).
 unset ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN ANTHROPIC_API_KEY OLLAMA_HOST
 unset DISABLE_COMPACT CLAUDE_CODE_MAX_CONTEXT_TOKENS   # local-mode context-window overrides (see source_local.sh)
+# local-mode model-alias pins (see source_local.sh): leaving these set would make
+# cloud mode resolve sonnet/opus/haiku to a local Ollama tag the cloud does not have.
+unset ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL
+unset ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_SMALL_FAST_MODEL
 unset LOCALLLM_MODEL LOCALLLM_CODEX_PROFILE
 unset _LOCALLLM_SOURCED   # sentinel cleared: no longer in LOCAL mode (see source_local.sh)
 

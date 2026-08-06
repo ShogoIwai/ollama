@@ -22,6 +22,10 @@ if ($?_LOCALLLM_SOURCED) then
     if ($?LOCALLLM_CODEX_PROFILE) unsetenv LOCALLLM_CODEX_PROFILE
     if ($?DISABLE_COMPACT) unsetenv DISABLE_COMPACT
     if ($?CLAUDE_CODE_MAX_CONTEXT_TOKENS) unsetenv CLAUDE_CODE_MAX_CONTEXT_TOKENS
+    if ($?ANTHROPIC_DEFAULT_SONNET_MODEL) unsetenv ANTHROPIC_DEFAULT_SONNET_MODEL
+    if ($?ANTHROPIC_DEFAULT_OPUS_MODEL) unsetenv ANTHROPIC_DEFAULT_OPUS_MODEL
+    if ($?ANTHROPIC_DEFAULT_HAIKU_MODEL) unsetenv ANTHROPIC_DEFAULT_HAIKU_MODEL
+    if ($?ANTHROPIC_SMALL_FAST_MODEL) unsetenv ANTHROPIC_SMALL_FAST_MODEL
     unsetenv _LOCALLLM_SOURCED
     unalias claude
     unalias codex
@@ -90,6 +94,25 @@ endif
 # sourcing (explicit pre-set wins).
 if (! $?CLAUDE_CODE_MAX_CONTEXT_TOKENS) setenv CLAUDE_CODE_MAX_CONTEXT_TOKENS 262144
 setenv _LOCALLLM_SOURCED 1   # sentinel: in LOCAL mode (see auto-reset block above)
+
+# --- Model-alias resolution (Claude Code sub-agents) ---
+# The `claude` alias below pins the parent session's model. A sub-agent that does
+# not request a model of its own inherits that tag, so the common case needs
+# nothing extra. But when a sub-agent DOES name a model -- `model:` in an agent
+# definition, or the Task tool's model parameter -- Claude Code resolves the
+# alias through its built-in table and sends a cloud model ID (e.g.
+# claude-sonnet-5), which Ollama answers with 404. Observed behaviour in that
+# case: Claude Code retried once against the haiku default (also 404), then the
+# parent session completed the sub-agent's work itself and exited normally, so
+# the failure did not surface as an error. Pinning the alias slots to the local
+# tag keeps such a request on the local model. See the README section
+# "Sub-agents and model resolution" for the measurement this is based on.
+# source_cloud.csh unsets all four; leaving them set would make cloud mode ask
+# for a tag the cloud endpoint does not have.
+setenv ANTHROPIC_DEFAULT_SONNET_MODEL "$LOCALLLM_MODEL"
+setenv ANTHROPIC_DEFAULT_OPUS_MODEL   "$LOCALLLM_MODEL"
+setenv ANTHROPIC_DEFAULT_HAIKU_MODEL  "$LOCALLLM_MODEL"
+setenv ANTHROPIC_SMALL_FAST_MODEL     "$LOCALLLM_MODEL"   # older name for the haiku slot
 
 # --- Local-mode aliases (cleared by source_cloud.csh) ---
 # claude: env already points at Ollama; alias just pins the model name.

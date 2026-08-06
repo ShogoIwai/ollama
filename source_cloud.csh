@@ -11,6 +11,12 @@ unsetenv ANTHROPIC_API_KEY
 unsetenv OLLAMA_HOST
 if ($?DISABLE_COMPACT) unsetenv DISABLE_COMPACT                          # local-mode context-window
 if ($?CLAUDE_CODE_MAX_CONTEXT_TOKENS) unsetenv CLAUDE_CODE_MAX_CONTEXT_TOKENS  # overrides (see source_local)
+# local-mode model-alias pins (see source_local.csh): leaving these set would make
+# cloud mode resolve sonnet/opus/haiku to a local Ollama tag the cloud does not have.
+if ($?ANTHROPIC_DEFAULT_SONNET_MODEL) unsetenv ANTHROPIC_DEFAULT_SONNET_MODEL
+if ($?ANTHROPIC_DEFAULT_OPUS_MODEL) unsetenv ANTHROPIC_DEFAULT_OPUS_MODEL
+if ($?ANTHROPIC_DEFAULT_HAIKU_MODEL) unsetenv ANTHROPIC_DEFAULT_HAIKU_MODEL
+if ($?ANTHROPIC_SMALL_FAST_MODEL) unsetenv ANTHROPIC_SMALL_FAST_MODEL
 if ($?LOCALLLM_MODEL) unsetenv LOCALLLM_MODEL
 if ($?LOCALLLM_CODEX_PROFILE) unsetenv LOCALLLM_CODEX_PROFILE
 if ($?_LOCALLLM_SOURCED) unsetenv _LOCALLLM_SOURCED   # sentinel cleared: no longer in LOCAL mode

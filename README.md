@@ -527,6 +527,96 @@ source ollama/source_cloud.sh         # tcsh: source ollama/source_cloud.csh
 claude                             # alias cleared → cloud default
 ```
 
+#### Sub-agents and model resolution
+
+This section records **a single set of observations**, not documented product
+behaviour. Claude Code's model resolution and fallback logic are not specified
+publicly, so treat the results below as "what this version did on this setup",
+and re-measure before relying on them.
+
+**Setup.** Claude Code 2.1.222; Ollama serving `qwen3.6:35b-a3b-mtp-q4_K_M` as
+the only chat model; measured 2026-08-06. A transparent logging proxy was placed
+in front of the server and `ANTHROPIC_BASE_URL` pointed at it. The proxy parsed
+`model` out of each `POST /v1/messages` body, logged it, and relayed request and
+response unmodified (chunked, so streaming is preserved). In this version,
+requests belonging to a sub-agent carried a `cc_is_subagent=` marker in the
+system block; that marker is what distinguished them from the parent session's
+own requests. Each condition below was run **once**, with the parent invoked as:
+
+```bash
+ANTHROPIC_BASE_URL=<proxy> ANTHROPIC_AUTH_TOKEN=ollama ANTHROPIC_API_KEY= \
+  claude -p "<prompt asking for one Task-tool sub-agent that replies PONG>" \
+    --model qwen3.6:35b-a3b-mtp-q4_K_M \
+    --allowedTools Task --permission-mode bypassPermissions
+```
+
+For conditions 2 and 3 the sub-agent was declared with
+`--agents '{"probe":{"description":"probe","prompt":"Reply with PONG and nothing
+else.","model":"sonnet","tools":[]}}'` and the prompt referenced
+`subagent_type=probe`.
+
+| Condition | `model` in the sub-agent request | Observed outcome |
+| --- | --- | --- |
+| no `model` on the sub-agent, four env vars unset | `qwen3.6:35b-a3b-mtp-q4_K_M` | request completed; sub-agent returned an answer |
+| `model: sonnet` in the agent definition, env vars unset | `claude-sonnet-5`, then `claude-haiku-4-5-20251001` | HTTP 404 for both |
+| `model: sonnet`, four env vars set to the local tag | `qwen3.6:35b-a3b-mtp-q4_K_M` | request completed; sub-agent returned an answer |
+
+Observations:
+
+1. With no model specified for the sub-agent, the request carried the same tag
+   the parent was started with, and the sub-agent produced its answer. No extra
+   configuration was needed in this condition.
+2. With `model: sonnet` in the agent definition, the request carried
+   `claude-sonnet-5` and Ollama answered
+   `404 {"type":"not_found_error","message":"model 'claude-sonnet-5' not
+   found"}`. A second attempt carried `claude-haiku-4-5-20251001` and also 404'd.
+   Only the `sonnet` alias and only the agent-definition form were measured; the
+   Task tool's own `model` parameter, and the `opus` / `haiku` aliases, were not
+   tested.
+3. After both attempts failed, **the parent session did not stop.** It reported
+   that the sub-agent was unavailable and then produced the answer itself, and
+   the CLI exited normally. Whether this take-over happens is likely to depend on
+   the parent model and the prompt, so it should not be assumed to be a
+   guaranteed fallback path — but it means a failure of this kind can end in a
+   normal-looking completion rather than an error, with work that was split
+   across sub-agents landing back in the parent session.
+
+Setting these four environment variables to the local tag made alias resolution
+land on the local model in condition 3:
+
+```bash
+ANTHROPIC_DEFAULT_SONNET_MODEL   # sonnet alias
+ANTHROPIC_DEFAULT_OPUS_MODEL     # opus alias
+ANTHROPIC_DEFAULT_HAIKU_MODEL    # haiku alias
+ANTHROPIC_SMALL_FAST_MODEL       # older name for the haiku slot
+```
+
+`source_local.sh` / `source_local.csh` set all four to `$LOCALLLM_MODEL`, and
+`source_cloud.sh` / `source_cloud.csh` unset them again — leaving them set while
+switching back to cloud would make the cloud endpoint receive a local Ollama tag
+it does not have. Only the four together were tested; the individual
+contribution of each variable was not measured.
+
+##### Operational cautions (not measured)
+
+The following follow from the observations above but were not themselves tested:
+
+- Avoid setting `model` on Task tool calls or in agent definitions when running
+  against a local backend.
+- If a prompt or skill fans work out to sub-agents, consider stating that the
+  parent must stop rather than take over when a sub-agent cannot be started.
+  Whether such an instruction reliably prevents the take-over in observation 3
+  was not verified.
+- Before a run, check the four variables by name rather than dumping the
+  environment (`env | grep ANTHROPIC` can print auth tokens):
+
+  ```bash
+  for v in ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL \
+           ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_SMALL_FAST_MODEL; do
+    eval "printf '%s=%s\n' \"$v\" \"\${$v:-<unset>}\""
+  done
+  ```
+
 ### Codex
 
 `source_local.sh` aliases `codex` →
