@@ -80,6 +80,9 @@ if (! $?LOCALLLM_CODEX_PROFILE) then
         case qwen3.6:*:
             setenv LOCALLLM_CODEX_PROFILE "ollama-qwen36-35b"
             breaksw
+        case ornith-1.5:*:
+            setenv LOCALLLM_CODEX_PROFILE "ollama-ornith15-35b"
+            breaksw
         default:
             setenv LOCALLLM_CODEX_PROFILE "ollama-local"
             breaksw

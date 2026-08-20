@@ -66,6 +66,7 @@ fi
 if [ -z "${LOCALLLM_CODEX_PROFILE:-}" ]; then
     case "${LOCALLLM_MODEL}" in
         qwen3.6:*)            LOCALLLM_CODEX_PROFILE="ollama-qwen36-35b" ;;
+        ornith-1.5:*)         LOCALLLM_CODEX_PROFILE="ollama-ornith15-35b" ;;
         *)                    LOCALLLM_CODEX_PROFILE="ollama-local" ;;
     esac
 fi

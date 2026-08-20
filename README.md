@@ -226,6 +226,7 @@ kept — as after this cleanup — nothing to do.)
 | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `up_version.csh`                           | Reinstall Ollama to the latest release, stop/disable the systemd unit, and print the version (manual update helper)                                                                                                                                                                                    |
 | `start_ollama_qwen36_35b.sh`               | Thin launcher for`qwen3.6:35b-a3b-mtp-q4_K_M` (default; Qwen3.6-35B-A3B MoE, ~3B active, thinking + vision; override `MODEL=qwen3.6:35b` for non-MTP)                                                                              |
+| `start_ollama_ornith15_35b.sh`             | Thin launcher for`ornith-1.5:35b` (Ornith-1.5-35B-A3B MoE, ~3B active, vision + thinking + tools; arch `qwen35moe`, same family as the default). Measured **~97 tok/s @ 256K**, 11% CPU spill                                     |
 | `_ollama_serve_common.sh`                  | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in`~/.ollama_active_model`. Default `OLLAMA_CONTEXT_LENGTH=262144` (256K)                                                                                                              |
 | `ocr_to_md.sh`                             | Vision-as-preprocessing helper: OCR an image/PDF to Markdown with a small dedicated model (`glm-ocr`) so a **text-only** agentic model can consume it — see [Vision via OCR preprocessing](#vision-via-ocr-preprocessing). **Currently optional:** the adopted model is vision-capable, so this is only needed if a text-only model is re-added |
 | `source_local.sh` / `.csh`               | LOCAL mode: export Claude Code`ANTHROPIC_*` + alias `claude`/`codex` to local                                                                                                                                                                                                                    |
@@ -264,6 +265,7 @@ ollama run qwen3.6:35b-a3b-mtp-q4_K_M      # optional REPL smoke test
 
 ```bash
 ./start_ollama_qwen36_35b.sh         # qwen3.6:35b-a3b-mtp-q4_K_M (default; override MODEL=qwen3.6:35b for non-MTP)
+./start_ollama_ornith15_35b.sh       # ornith-1.5:35b (Ornith-1.5-35B-A3B; ~97 tok/s @ 256K, faster than the default)
 ```
 
 Each launcher is a thin wrapper: it sets the `MODEL` tag and sources the shared
@@ -357,6 +359,22 @@ params per token, so far slower than this ~3B-active MoE).
 it is a candidate **direct-connect** agentic backend (`tools`) — a full agentic
 tool-driving loop has not yet been exercised end-to-end here.
 
+**Ornith-1.5-35B-A3B (`ornith-1.5:35b`, measured).** Sparse MoE, 35.5B total /
+**~3B active**, vision-capable, arch `qwen35moe` (41 blocks) with a native
+**256K** context, so the shared core's 262144 default applies unchanged. Ollama
+publishes the 35B only at **q4_K_M**: 22 GB weights + a 903 MB BF16 clip
+projector (~23 GB on disk). **Measured on this host (RTX 3090 24GB)** with the
+wrapper's `OLLAMA_KV_CACHE_TYPE=q8_0` + flash attention, at the **256K**
+default: `ollama ps` shows **26 GB resident / 11%/89% CPU/GPU split**
+(23.3 GB of the 24 GB VRAM in use) and **~97 tok/s** generation
+(~97-100 tok/s across two runs; ~210 tok/s prompt eval). Despite being slightly *larger* on disk than the
+qwen3.6 MTP default, it runs **~2x faster** at the same 256K context (97 vs ~49 tok/s) with a *smaller* CPU spill (11% vs 17%) — evidence that the MTP
+draft head, not the weight size, is what costs the default model its speed here.
+`/api/show` reports capabilities `['tools','thinking','completion','vision']`,
+and **Claude Code and Codex have both been driven against it via direct connect**
+(`source_local.sh` ⇒ `--model ornith-1.5:35b` / `--profile
+ollama-ornith15-35b`).
+
 **Sizing a new model (rough estimate).** Before pulling, estimate weight memory as:
 
 ```
@@ -389,11 +407,14 @@ default:
 | Model                                            | Context | Processor          | VRAM (SIZE) | Throughput |
 | ------------------------------------------------ | ------- | ------------------ | ----------- | ---------- |
 | `qwen3.6:35b-a3b-mtp-q4_K_M` (default, MTP)    | 262144  | **17%/83% CPU/GPU** | 23 GB       | **~49 tok/s** |
+| `ornith-1.5:35b` (Ornith-1.5-35B-A3B, non-MTP) | 262144  | **11%/89% CPU/GPU** | 26 GB       | **~97 tok/s** |
 
 > **Takeaway:** at the 256K default the ~22 GB Q4 weights plus the q8_0 KV cache
-> exceed 24 GB, so the model spills ~17% to CPU; the MTP draft head's extra compute
-> likely compounds the slowdown here rather than helping. If you need to avoid the
-> spill, drop `OLLAMA_KV_CACHE_TYPE=q4_0` (halves KV VRAM) or lower
+> exceed 24 GB, so both models spill to CPU. `ornith-1.5:35b` is the *larger*
+> download (22 GB weights + 903 MB projector) yet spills **less** (11% vs 17%) and
+> runs **~2x faster** at the same context — so the default's slowdown is the MTP
+> draft head's extra compute, not weight size; the draft head costs more than it
+> saves here. If you need to avoid the spill, drop `OLLAMA_KV_CACHE_TYPE=q4_0` (halves KV VRAM) or lower
 > `OLLAMA_CONTEXT_LENGTH`.
 
 > The reported SIZE reflects a near-empty KV cache because Ollama allocates KV
@@ -472,7 +493,7 @@ explicit `setenv`/`export LOCALLLM_MODEL` before sourcing always wins.
 
 `LOCALLLM_CODEX_PROFILE`, when unset, is **derived from `LOCALLLM_MODEL`** via a
 `switch` in `source_local.csh`:
-`qwen3.6:*` ⇒ `ollama-qwen36-35b`, everything else ⇒
+`qwen3.6:*` ⇒ `ollama-qwen36-35b`, `ornith-1.5:*` ⇒ `ollama-ornith15-35b`, everything else ⇒
 `ollama-local`. (Each model gets its own explicit case, so an unlisted variant
 defaults to `ollama-local`.) Add one
 `case` + a matching overlay file per new local model.
@@ -628,7 +649,7 @@ Notion MCP setting. You can still invoke either explicitly
 (`codex --profile ollama-local -c mcp_servers.notion.enabled=false` / `codex`)
 regardless of which file is sourced. By default `LOCALLLM_CODEX_PROFILE` is
 **auto-derived from the detected `LOCALLLM_MODEL`** (see the auto-detection note above):
-`qwen3.6:*` ⇒ `ollama-qwen36-35b`, otherwise ⇒ `ollama-local` (one
+`qwen3.6:*` ⇒ `ollama-qwen36-35b`, `ornith-1.5:*` ⇒ `ollama-ornith15-35b`, otherwise ⇒ `ollama-local` (one
 explicit case per model). To force a specific profile, set
 `LOCALLLM_CODEX_PROFILE` before sourcing — Codex picks the model per profile
 (overlay file), not per env var, so each profile needs its own overlay file
@@ -689,6 +710,7 @@ Add one overlay file per additional local model you adopt, reusing the same
 ```bash
 codex --profile ollama-local                 # fallback profile → default qwen3.6:35b-a3b-mtp-q4_K_M
 codex --profile ollama-qwen36-35b            # local qwen3.6:35b-a3b (loads ollama-qwen36-35b.config.toml)
+codex --profile ollama-ornith15-35b          # local ornith-1.5:35b   (loads ollama-ornith15-35b.config.toml)
 codex                                        # cloud (default profile)
 ```
 
