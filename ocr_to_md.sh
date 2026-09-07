@@ -42,15 +42,17 @@ OCR_PROMPT="${OCR_PROMPT:-Text Recognition:}"
 OCR_NUM_PREDICT="${OCR_NUM_PREDICT:-8192}"
 OLLAMA_HOST="${OLLAMA_HOST:-http://localhost:11434}"
 
+# NOTE: --force must be stripped without round-tripping the operands through a
+# single string; that loses quoting and glob-expands, so a path containing a
+# space (or a TMPDIR with one) could never be OCR'd.
 FORCE=0
-ARGS=""
-for arg in "$@"; do
-  case "$arg" in
-    --force) FORCE=1 ;;
-    *) ARGS="${ARGS:+$ARGS }$arg" ;;
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --force) FORCE=1; shift ;;
+    --) shift; break ;;
+    *) break ;;
   esac
 done
-set -- $ARGS
 
 if [ $# -lt 1 ] || [ $# -gt 2 ]; then
   echo "usage: $0 [--force] <input.pdf|image> [output.md]" >&2
@@ -65,6 +67,13 @@ fi
 
 # Default output: strip the input extension and append .md, in the same dir.
 OUTPUT="${2:-${INPUT%.*}.md}"
+
+# `: > "$OUTPUT"` below truncates before the first page is read, so an output
+# that resolves to the input would destroy the source image/PDF.
+if [ -e "$OUTPUT" ] && [ "$OUTPUT" -ef "$INPUT" ]; then
+  echo "output would overwrite the input ($INPUT); pick another path." >&2
+  exit 1
+fi
 
 if [ "$FORCE" -eq 0 ] && [ -f "$OUTPUT" ]; then
   echo "$OUTPUT already exists; skipping (use --force to regenerate)." >&2
@@ -89,8 +98,21 @@ fi
 
 # Build the list of page images to OCR. For a PDF, rasterize to a temp dir.
 WORKDIR=""
-cleanup() { [ -n "$WORKDIR" ] && rm -rf "$WORKDIR"; }
-trap cleanup EXIT INT TERM
+cleanup() {
+  # NOTE: under `set -e`, a false last command inside the EXIT trap trips
+  # errexit *during the trap* and the script exits 1 even on success
+  # (WORKDIR is empty for a single-image input, so the test is false).
+  # Verified: `bash -c 'set -eu; c(){ [ -n "$W" ] && rm -rf "$W"; };
+  # W=""; trap c EXIT; echo body'` exits 1; without `set -e` it exits 0.
+  [ -n "$WORKDIR" ] && rm -rf "$WORKDIR"
+  return 0
+}
+# EXIT only cleans up; a signal must still terminate the run (the `return 0`
+# above means a bare `trap cleanup INT TERM` would resume the page loop and
+# OCR images that were just deleted).
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
 
 case "$INPUT" in
   *.pdf|*.PDF)
@@ -118,6 +140,12 @@ fi
 : > "$OUTPUT"
 N=0
 TOTAL="$(printf '%s\n' "$PAGES" | wc -l | tr -d ' ')"
+# $PAGES is one path per line: split on newline only and disable globbing, so a
+# page path containing a space or a glob character still reaches the OCR call.
+_OLD_IFS="$IFS"
+IFS='
+'
+set -f
 for IMG in $PAGES; do
   N=$((N + 1))
   echo "OCR page ${N}/${TOTAL}: $(basename "$IMG")" >&2
@@ -190,5 +218,7 @@ PY
     printf '\n\n---\n\n' >> "$OUTPUT"
   fi
 done
+set +f
+IFS="$_OLD_IFS"
 
 echo "Wrote ${OUTPUT} (${TOTAL} page(s), model=${OCR_MODEL})." >&2
