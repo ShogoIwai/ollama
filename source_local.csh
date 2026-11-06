@@ -83,6 +83,9 @@ if (! $?LOCALLLM_CODEX_PROFILE) then
         case ornith-1.5:*:
             setenv LOCALLLM_CODEX_PROFILE "ollama-ornith15-35b"
             breaksw
+        case flint:*:
+            setenv LOCALLLM_CODEX_PROFILE "ollama-flint-40b"
+            breaksw
         default:
             setenv LOCALLLM_CODEX_PROFILE "ollama-local"
             breaksw
@@ -91,7 +94,7 @@ endif
 
 # Align Claude Code's context gauge to the model's SERVED Ollama window so the
 # "approaching limit" warning fires at the real truncation point. All local
-# models are qwen35-family builds served at the shared core's 256K (262144)
+# models (qwen35-family builds and flint) are served at the shared core's 256K (262144)
 # default, so 262144 matches every launcher's OLLAMA_CONTEXT_LENGTH. If you start a
 # launcher with a smaller OLLAMA_CONTEXT_LENGTH, pre-set this to match before
 # sourcing (explicit pre-set wins).

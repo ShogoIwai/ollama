@@ -227,8 +227,9 @@ kept — as after this cleanup — nothing to do.)
 | `up_version.csh`                           | Reinstall Ollama to the latest release, stop/disable the systemd unit, and print the version (manual update helper)                                                                                                                                                                                    |
 | `start_ollama_qwen36_35b.sh`               | Thin launcher for`qwen3.6:35b-a3b-mtp-q4_K_M` (default; Qwen3.6-35B-A3B MoE, ~3B active, thinking + vision; override `MODEL=qwen3.6:35b` for non-MTP)                                                                              |
 | `start_ollama_ornith15_35b.sh`             | Thin launcher for`ornith-1.5:35b` (Ornith-1.5-35B-A3B MoE, ~3B active, vision + thinking + tools; arch `qwen35moe`, same family as the default). Measured **~97 tok/s @ 256K**, 11% CPU spill                                     |
+| `start_ollama_flint_40b.sh`                | Thin launcher for`flint:40b` (Recursive Flint 39.8B MoE, ~2.5B active, thinking + tools, **text-only**; NVFP4, needs Ollama ≥ 0.40.9). Measured **~88 tok/s @ 256K**, 6% CPU spill                                     |
 | `_ollama_serve_common.sh`                  | Shared core sourced by the launchers (daemon start, readiness wait, lazy pull); records the launched model in`~/.ollama_active_model`. Default `OLLAMA_CONTEXT_LENGTH=262144` (256K)                                                                                                              |
-| `ocr_to_md.sh`                             | Vision-as-preprocessing helper: OCR an image/PDF to Markdown with a small dedicated model (`glm-ocr`) so a **text-only** agentic model can consume it — see [Vision via OCR preprocessing](#vision-via-ocr-preprocessing). **Currently optional:** the adopted model is vision-capable, so this is only needed if a text-only model is re-added |
+| `ocr_to_md.sh`                             | Vision-as-preprocessing helper: OCR an image/PDF to Markdown with a small dedicated model (`glm-ocr`) so a **text-only** agentic model can consume it — see [Vision via OCR preprocessing](#vision-via-ocr-preprocessing). Optional for the vision-capable Qwen/Ornith launchers; **needed when the text-only `flint:40b` is served** |
 | `source_local.sh` / `.csh`               | LOCAL mode: export Claude Code`ANTHROPIC_*` + alias `claude`/`codex` to local                                                                                                                                                                                                                    |
 | `source_cloud.sh` / `.csh`               | CLOUD mode: unset those env vars and`unalias claude`/`codex`                                                                                                                                                                                                                                       |
 
@@ -266,6 +267,7 @@ ollama run qwen3.6:35b-a3b-mtp-q4_K_M      # optional REPL smoke test
 ```bash
 ./start_ollama_qwen36_35b.sh         # qwen3.6:35b-a3b-mtp-q4_K_M (default; override MODEL=qwen3.6:35b for non-MTP)
 ./start_ollama_ornith15_35b.sh       # ornith-1.5:35b (Ornith-1.5-35B-A3B; ~97 tok/s @ 256K, faster than the default)
+./start_ollama_flint_40b.sh          # flint:40b (Recursive Flint; ~88 tok/s @ 256K, smallest CPU spill; text-only)
 ```
 
 Each launcher is a thin wrapper: it sets the `MODEL` tag and sources the shared
@@ -375,6 +377,25 @@ and **Claude Code and Codex have both been driven against it via direct connect*
 (`source_local.sh` ⇒ `--model ornith-1.5:35b` / `--profile
 ollama-ornith15-35b`).
 
+**Flint 40B (`flint:40b`, measured).** Recursive's coding-agent model: sparse MoE,
+39.8B total / **~2.5B active** (256 experts, 6 routed + 2 shared), arch `flint`
+(not qwen35moe) with a native **262144 (256K)** context, so the shared core's
+default applies unchanged. Apache 2.0. Ollama publishes it **only as NVFP4**
+(`flint:40b` = `flint:latest`, 22.9 GB weights, no vision projector) and the
+manifest **requires Ollama ≥ 0.40.9** — run `up_version.csh` first on older
+installs (0.32.14 here could not load it). NVFP4 is a Blackwell-native format,
+but it runs fine on this Ampere card via the llama.cpp runner. **Measured on this
+host (RTX 3090 24GB, Ollama 0.40.15)** with the wrapper's
+`OLLAMA_KV_CACHE_TYPE=q8_0` + flash attention, at the **256K** default:
+`ollama ps` shows **21 GB resident / 6%/94% CPU/GPU split** (23.1 GB of the 24 GB
+VRAM in use) and **~88 tok/s** generation (88 tok/s on two 512-token runs; 81 tok/s
+after a ~7.5K-token prompt, prefilled at ~1.1K tok/s). The smallest CPU spill of
+the three adopted models, ~1.8x the qwen3.6 MTP default, slightly behind Ornith.
+`/api/show` reports capabilities `['completion','tools','thinking']` — **no
+`vision`**, so images/PDFs need [OCR preprocessing](#vision-via-ocr-preprocessing).
+**Claude Code and Codex have both been driven against it via direct connect**
+(`source_local.sh` ⇒ `--model flint:40b` / `--profile ollama-flint-40b`).
+
 **Sizing a new model (rough estimate).** Before pulling, estimate weight memory as:
 
 ```
@@ -404,17 +425,22 @@ SIZE / processor split from `ollama ps`, throughput from `/api/generate`
 loaded** (KV cache mostly empty — see caveat below), at the **256K** wrapper
 default:
 
-| Model                                            | Context | Processor          | VRAM (SIZE) | Throughput |
-| ------------------------------------------------ | ------- | ------------------ | ----------- | ---------- |
+| Model                                            | Context | Processor          | `ollama ps` SIZE | Throughput |
+| ------------------------------------------------ | ------- | ------------------ | ---------------- | ---------- |
 | `qwen3.6:35b-a3b-mtp-q4_K_M` (default, MTP)    | 262144  | **17%/83% CPU/GPU** | 23 GB       | **~49 tok/s** |
 | `ornith-1.5:35b` (Ornith-1.5-35B-A3B, non-MTP) | 262144  | **11%/89% CPU/GPU** | 26 GB       | **~97 tok/s** |
+| `flint:40b` (Recursive Flint, NVFP4, text-only)  | 262144  | **6%/94% CPU/GPU**  | 21 GB       | **~88 tok/s** ¹ |
+
+¹ Measured with 512-token generations on Ollama 0.40.15 (the other rows used 300).
 
 > **Takeaway:** at the 256K default the ~22 GB Q4 weights plus the q8_0 KV cache
-> exceed 24 GB, so both models spill to CPU. `ornith-1.5:35b` is the *larger*
+> exceed 24 GB, so both Q4 models (qwen3.6 / Ornith) spill to CPU. `ornith-1.5:35b` is the *larger*
 > download (22 GB weights + 903 MB projector) yet spills **less** (11% vs 17%) and
 > runs **~2x faster** at the same context — so the default's slowdown is the MTP
 > draft head's extra compute, not weight size; the draft head costs more than it
-> saves here. If you need to avoid the spill, drop `OLLAMA_KV_CACHE_TYPE=q4_0` (halves KV VRAM) or lower
+> saves here. `flint:40b` is NVFP4 rather than Q4 and is not part of that comparison:
+> at 256K it shows a 6%/94% CPU/GPU split (21 GB SIZE, 23.1 GB GPU in use) at ~88 tok/s.
+> If you need to avoid the spill, drop `OLLAMA_KV_CACHE_TYPE=q4_0` (halves KV VRAM) or lower
 > `OLLAMA_CONTEXT_LENGTH`.
 
 > The reported SIZE reflects a near-empty KV cache because Ollama allocates KV
@@ -493,7 +519,7 @@ explicit `setenv`/`export LOCALLLM_MODEL` before sourcing always wins.
 
 `LOCALLLM_CODEX_PROFILE`, when unset, is **derived from `LOCALLLM_MODEL`** via a
 `switch` in `source_local.csh`:
-`qwen3.6:*` ⇒ `ollama-qwen36-35b`, `ornith-1.5:*` ⇒ `ollama-ornith15-35b`, everything else ⇒
+`qwen3.6:*` ⇒ `ollama-qwen36-35b`, `ornith-1.5:*` ⇒ `ollama-ornith15-35b`, `flint:*` ⇒ `ollama-flint-40b`, everything else ⇒
 `ollama-local`. (Each model gets its own explicit case, so an unlisted variant
 defaults to `ollama-local`.) Add one
 `case` + a matching overlay file per new local model.
@@ -649,7 +675,7 @@ Notion MCP setting. You can still invoke either explicitly
 (`codex --profile ollama-local -c mcp_servers.notion.enabled=false` / `codex`)
 regardless of which file is sourced. By default `LOCALLLM_CODEX_PROFILE` is
 **auto-derived from the detected `LOCALLLM_MODEL`** (see the auto-detection note above):
-`qwen3.6:*` ⇒ `ollama-qwen36-35b`, `ornith-1.5:*` ⇒ `ollama-ornith15-35b`, otherwise ⇒ `ollama-local` (one
+`qwen3.6:*` ⇒ `ollama-qwen36-35b`, `ornith-1.5:*` ⇒ `ollama-ornith15-35b`, `flint:*` ⇒ `ollama-flint-40b`, otherwise ⇒ `ollama-local` (one
 explicit case per model). To force a specific profile, set
 `LOCALLLM_CODEX_PROFILE` before sourcing — Codex picks the model per profile
 (overlay file), not per env var, so each profile needs its own overlay file
@@ -711,6 +737,7 @@ Add one overlay file per additional local model you adopt, reusing the same
 codex --profile ollama-local                 # fallback profile → default qwen3.6:35b-a3b-mtp-q4_K_M
 codex --profile ollama-qwen36-35b            # local qwen3.6:35b-a3b (loads ollama-qwen36-35b.config.toml)
 codex --profile ollama-ornith15-35b          # local ornith-1.5:35b   (loads ollama-ornith15-35b.config.toml)
+codex --profile ollama-flint-40b             # local flint:40b        (loads ollama-flint-40b.config.toml)
 codex                                        # cloud (default profile)
 ```
 
@@ -718,11 +745,12 @@ codex                                        # cloud (default profile)
 
 ## Vision via OCR preprocessing
 
-> **Currently optional — the adopted model is vision-capable.** The default model
-> (`qwen3.6:35b-a3b-mtp-q4_K_M`) reports `vision`, so it reads images /
-> PDF pages directly and this OCR-preprocessing hop is **not required**. This
-> section is retained for reference and for the case where a **text-only** model
-> (e.g. a future Ornith-style agentic-coding build) is re-added.
+> **Optional for Qwen/Ornith, needed for Flint.** The default model
+> (`qwen3.6:35b-a3b-mtp-q4_K_M`) and `ornith-1.5:35b` report `vision`, so they read
+> images / PDF pages directly and this OCR-preprocessing hop is **not required**
+> there. It is needed when a **text-only** model
+> is served — currently **`flint:40b`** (no `vision`), so use it when Flint is the
+> loaded model.
 
 A text-only agentic model (no `vision` capability) cannot read images or PDFs.
 The way to give it "eyes" is to run a **small dedicated OCR model** (`glm-ocr`,
